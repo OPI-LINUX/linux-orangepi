@@ -6,12 +6,6 @@
 #include <dt-bindings/thermal/thermal.h>
 
 / {
-	aliases {
-		mmc0 = &mmc0;
-		mmc1 = &mmc1;
-		mmc2 = &mmc2;
-	};
-
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -99,7 +93,7 @@
 				#size-cells = <1>;
 				ranges = <0 0x00040000 0x14000>;
 
-				scpi_sram: scp-shmem@13c00 {
+				scpi_sram: scpi-sram@13c00 {
 					compatible = "arm,scp-shmem";
 					reg = <0x13c00 0x200>;
 				};
@@ -138,6 +132,19 @@
 			clocks = <&ccu CLK_BUS_CE>, <&ccu CLK_CE>;
 			clock-names = "bus", "mod";
 			resets = <&ccu RST_BUS_CE>;
+		};
+
+		deinterlace: deinterlace@1e00000 {
+			compatible = "allwinner,sun8i-h3-deinterlace";
+			reg = <0x01e00000 0x20000>;
+			clocks = <&ccu CLK_BUS_DEINTERLACE>,
+				 <&ccu CLK_DEINTERLACE>,
+				 <&ccu CLK_DRAM_DEINTERLACE>;
+			clock-names = "bus", "mod", "ram";
+			resets = <&ccu RST_BUS_DEINTERLACE>;
+			interrupts = <GIC_SPI 93 IRQ_TYPE_LEVEL_HIGH>;
+			interconnects = <&mbus 9>;
+			interconnect-names = "dma-mem";
 		};
 
 		mali: gpu@1e80000 {
@@ -194,73 +201,31 @@
 
 	thermal-zones {
 		cpu_thermal: cpu-thermal {
-			/* milliseconds */
-			polling-delay-passive = <250>;
-			polling-delay = <1000>;
+			polling-delay-passive = <0>;
+			polling-delay = <0>;
 			thermal-sensors = <&ths 0>;
 
 			trips {
-				cpu_warm: cpu_warm {
-					temperature = <75000>;
-					hysteresis = <2000>;
-					type = "passive";
-				};
-
-				cpu_hot_pre: cpu_hot_pre {
+				cpu_hot_trip: cpu-hot {
 					temperature = <80000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
 
-				cpu_hot: cpu_hot {
-					temperature = <85000>;
-					hysteresis = <2000>;
-					type = "passive";
-				};
-
-				cpu_very_hot_pre: cpu_very_hot_pre {
-					temperature = <90000>;
-					hysteresis = <2000>;
-					type = "passive";
-				};
-
-				cpu_very_hot: cpu_very_hot {
-					temperature = <95000>;
-					hysteresis = <2000>;
-					type = "passive";
-				};
-
-				cpu_crit: cpu_crit {
-					temperature = <105000>;
-					hysteresis = <2000>;
+				cpu_very_hot_trip: cpu-very-hot {
+					temperature = <100000>;
+					hysteresis = <0>;
 					type = "critical";
 				};
 			};
 
 			cooling-maps {
-				cpu_warm_limit_cpu {
-					trip = <&cpu_warm>;
-					cooling-device = <&cpu0 THERMAL_NO_LIMIT 2>;
-				};
-
-				cpu_hot_pre_limit_cpu {                                                                                                                
-					trip = <&cpu_hot_pre>;
-					cooling-device = <&cpu0 2 3>;
-				};
-
-				cpu_hot_limit_cpu {
-					trip = <&cpu_hot>;
-					cooling-device = <&cpu0 3 4>;
-				};
-
-				cpu_very_hot_pre_limit_cpu {
-					trip = <&cpu_very_hot_pre>;
-					cooling-device = <&cpu0 5 6>;
-				};
-
-				cpu_very_hot_limit_cpu {
-					trip = <&cpu_very_hot>;
-					cooling-device = <&cpu0 7 THERMAL_NO_LIMIT>;
+				cpu-hot-limit {
+					trip = <&cpu_hot_trip>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
 			};
 		};
@@ -315,9 +280,4 @@
 
 &sid {
 	compatible = "allwinner,sun50i-h5-sid";
-};
-
-&ths {
-	compatible = "allwinner,sun50i-h5-ths";
-	#thermal-sensor-cells = <1>;
 };

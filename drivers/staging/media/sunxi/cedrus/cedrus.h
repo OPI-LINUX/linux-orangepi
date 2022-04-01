@@ -28,6 +28,7 @@
 
 #define CEDRUS_CAPABILITY_UNTILED	BIT(0)
 #define CEDRUS_CAPABILITY_H265_DEC	BIT(1)
+#define CEDRUS_CAPABILITY_H265_10_DEC	BIT(2)
 
 #define CEDRUS_QUIRK_NO_DMA_OFFSET	BIT(0)
 
@@ -35,6 +36,7 @@ enum cedrus_codec {
 	CEDRUS_CODEC_MPEG2,
 	CEDRUS_CODEC_H264,
 	CEDRUS_CODEC_H265,
+	CEDRUS_CODEC_VP8,
 	CEDRUS_CODEC_LAST,
 };
 
@@ -74,6 +76,11 @@ struct cedrus_h265_run {
 	const struct v4l2_ctrl_hevc_sps			*sps;
 	const struct v4l2_ctrl_hevc_pps			*pps;
 	const struct v4l2_ctrl_hevc_slice_params	*slice_params;
+	const struct v4l2_ctrl_hevc_scaling_matrix	*scaling_matrix;
+};
+
+struct cedrus_vp8_run {
+	const struct v4l2_ctrl_vp8_frame_header		*slice_params;
 };
 
 struct cedrus_run {
@@ -84,6 +91,7 @@ struct cedrus_run {
 		struct cedrus_h264_run	h264;
 		struct cedrus_mpeg2_run	mpeg2;
 		struct cedrus_h265_run	h265;
+		struct cedrus_vp8_run	vp8;
 	};
 };
 
@@ -94,7 +102,15 @@ struct cedrus_buffer {
 		struct {
 			unsigned int			position;
 			enum cedrus_h264_pic_type	pic_type;
+			void		*mv_col_buf;
+			dma_addr_t	mv_col_buf_dma;
+			ssize_t		mv_col_buf_size;
 		} h264;
+		struct {
+			void		*mv_col_buf;
+			dma_addr_t	mv_col_buf_dma;
+			ssize_t		mv_col_buf_size;
+		} h265;
 	} codec;
 };
 
@@ -128,13 +144,19 @@ struct cedrus_ctx {
 			ssize_t		intra_pred_buf_size;
 		} h264;
 		struct {
-			void		*mv_col_buf;
-			dma_addr_t	mv_col_buf_addr;
-			ssize_t		mv_col_buf_size;
-			ssize_t		mv_col_buf_unit_size;
 			void		*neighbor_info_buf;
 			dma_addr_t	neighbor_info_buf_addr;
+			void		*entry_points_buf;
+			dma_addr_t	entry_points_buf_addr;
 		} h265;
+		struct {
+			unsigned int	last_frame_p_type;
+			unsigned int	last_filter_type;
+			unsigned int	last_sharpness_level;
+
+			u8		*entropy_probs_buf;
+			dma_addr_t	entropy_probs_buf_dma;
+		} vp8;
 	} codec;
 };
 
@@ -146,6 +168,7 @@ struct cedrus_dec_ops {
 	int (*start)(struct cedrus_ctx *ctx);
 	void (*stop)(struct cedrus_ctx *ctx);
 	void (*trigger)(struct cedrus_ctx *ctx);
+	void (*buf_cleanup)(struct cedrus_ctx *ctx, struct cedrus_buffer *buf);
 };
 
 struct cedrus_variant {
@@ -181,6 +204,7 @@ struct cedrus_dev {
 extern struct cedrus_dec_ops cedrus_dec_ops_mpeg2;
 extern struct cedrus_dec_ops cedrus_dec_ops_h264;
 extern struct cedrus_dec_ops cedrus_dec_ops_h265;
+extern struct cedrus_dec_ops cedrus_dec_ops_vp8;
 
 static inline void cedrus_write(struct cedrus_dev *dev, u32 reg, u32 val)
 {

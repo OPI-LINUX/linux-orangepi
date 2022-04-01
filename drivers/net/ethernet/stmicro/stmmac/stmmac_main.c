@@ -113,9 +113,6 @@ static void stmmac_exit_fs(struct net_device *dev);
 
 #define STMMAC_COAL_TIMER(x) (jiffies + usecs_to_jiffies(x))
 
-#define RTL_8211E_PHY_ID  0x001cc915
-#define RTL_8211F_PHY_ID  0x001cc916
-
 /**
  * stmmac_verify_args - verify the driver parameters.
  * Description: it checks the driver parameters and set a default in case of
@@ -608,7 +605,7 @@ static int stmmac_hwtstamp_set(struct net_device *dev, struct ifreq *ifr)
 			config.rx_filter = HWTSTAMP_FILTER_PTP_V2_EVENT;
 			ptp_v2 = PTP_TCR_TSVER2ENA;
 			snap_type_sel = PTP_TCR_SNAPTYPSEL_1;
-			if (priv->synopsys_id != DWMAC_CORE_5_10)
+			if (priv->synopsys_id < DWMAC_CORE_4_10)
 				ts_event_en = PTP_TCR_TSEVNTENA;
 			ptp_over_ipv4_udp = PTP_TCR_TSIPV4ENA;
 			ptp_over_ipv6_udp = PTP_TCR_TSIPV6ENA;
@@ -4867,54 +4864,6 @@ int stmmac_reinit_ringparam(struct net_device *dev, u32 rx_size, u32 tx_size)
 	return ret;
 }
 
-static int phy_rtl8211e_led_fixup(struct phy_device *phydev)
-{
-       //int val;
-
-       printk("%s in\n", __func__);
-
-       /*switch to extension page44*/
-       phy_write(phydev, 31, 0x07);
-       phy_write(phydev, 30, 0x2c);
-
-       /*set led1(yellow) act
-       val = phy_read(phydev, 26);
-       val &= (~(1<<4));// bit4=0
-       val |= (1<<5);// bit5=1
-       val &= (~(1<<6));// bit6=0*/
-       phy_write(phydev, 26, 0x20);
-
-       /*set led0(green) link
-       val = phy_read(phydev, 28);
-       val |= (7<<0);// bit0,1,2=1
-       val &= (~(7<<4));// bit4,5,6=0
-       val &= (~(7<<8));// bit8,9,10=0*/
-       phy_write(phydev, 28, 0x07);
-
-       /*switch back to page0*/
-       phy_write(phydev,31,0x00);
-
-       return 0;
-}
-
-static int phy_rtl8211f_led_fixup(struct phy_device *phydev)
-{
-       printk("%s in\n", __func__);
-
-       /*switch to extension page44*/
-       phy_write(phydev, 31, 0xd04);
-
-       /*set led1(yellow) act */
-       /*set led2(green) link*/
-       phy_write(phydev, 16, 0xae00);
-
-       phy_write(phydev, 17, 0);
-       /*switch back to page0*/
-       phy_write(phydev,31,0x00);
-
-       return 0;
-}
-
 /**
  * stmmac_dvr_probe
  * @device: device pointer
@@ -5134,15 +5083,6 @@ int stmmac_dvr_probe(struct device *device,
 		netdev_err(ndev, "failed to setup phy (%d)\n", ret);
 		goto error_phy_setup;
 	}
-
-	/* register the PHY board fixup */
-	ret = phy_register_fixup_for_uid(RTL_8211E_PHY_ID, 0xffffffff, phy_rtl8211e_led_fixup);
-	if (ret)
-		pr_warn("Cannot register PHY board fixup.\n");
-
-	ret = phy_register_fixup_for_uid(RTL_8211F_PHY_ID, 0xffffffff, phy_rtl8211f_led_fixup);
-	if (ret)
-		pr_warn("Cannot register PHY board fixup.\n");
 
 	ret = register_netdev(ndev);
 	if (ret) {

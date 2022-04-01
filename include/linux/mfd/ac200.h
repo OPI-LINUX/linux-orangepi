@@ -8,8 +8,8 @@
 #ifndef __LINUX_MFD_AC200_H
 #define __LINUX_MFD_AC200_H
 
-#include <linux/regmap.h>
 #include <linux/clk.h>
+#include <linux/regmap.h>
 
 /* interface registers (can be accessed from any page) */
 #define AC200_TWI_CHANGE_TO_RSB		0x3E
@@ -202,9 +202,8 @@
 #define AC200_IC_CHARA1			0xA1F2
 
 struct ac200_dev {
-	struct clk                    *clk;
-	struct regmap			*regmap;
-	struct regmap_irq_chip_data	*regmap_irqc;
+	struct clk	*clk;
+	struct regmap	*regmap;
 };
 
 #endif /* __LINUX_MFD_AC200_H */

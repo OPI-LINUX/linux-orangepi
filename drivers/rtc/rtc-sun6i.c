@@ -25,7 +25,6 @@
 #include <linux/of_address.h>
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
-#include <linux/pm_wakeirq.h>
 #include <linux/rtc.h>
 #include <linux/slab.h>
 #include <linux/types.h>
@@ -642,6 +641,31 @@ static const struct rtc_class_ops sun6i_rtc_ops = {
 	.alarm_irq_enable	= sun6i_rtc_alarm_irq_enable
 };
 
+/* Enable IRQ wake on suspend, to wake up from RTC. */
+static int sun6i_rtc_suspend(struct device *dev)
+{
+	struct sun6i_rtc_dev *chip = dev_get_drvdata(dev);
+
+	if (device_may_wakeup(dev))
+		enable_irq_wake(chip->irq);
+
+	return 0;
+}
+
+/* Disable IRQ wake on resume. */
+static int __maybe_unused sun6i_rtc_resume(struct device *dev)
+{
+	struct sun6i_rtc_dev *chip = dev_get_drvdata(dev);
+
+	if (device_may_wakeup(dev))
+		disable_irq_wake(chip->irq);
+
+	return 0;
+}
+
+static SIMPLE_DEV_PM_OPS(sun6i_rtc_pm_ops,
+	sun6i_rtc_suspend, sun6i_rtc_resume);
+
 static int sun6i_rtc_probe(struct platform_device *pdev)
 {
 	struct sun6i_rtc_dev *chip = sun6i_rtc;
@@ -692,11 +716,6 @@ static int sun6i_rtc_probe(struct platform_device *pdev)
 	clk_prepare_enable(chip->losc);
 
 	device_init_wakeup(&pdev->dev, 1);
-	ret = dev_pm_set_wake_irq(&pdev->dev, chip->irq);
-	if (ret) {
-		dev_err(&pdev->dev, "Could not set wake IRQ\n");
-		return ret;
-	}
 
 	chip->rtc = devm_rtc_allocate_device(&pdev->dev);
 	if (IS_ERR(chip->rtc))
@@ -712,6 +731,11 @@ static int sun6i_rtc_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "RTC enabled\n");
 
 	return 0;
+}
+
+static void sun6i_rtc_shutdown(struct platform_device *pdev)
+{
+	sun6i_rtc_suspend(&pdev->dev);
 }
 
 /*
@@ -734,9 +758,11 @@ MODULE_DEVICE_TABLE(of, sun6i_rtc_dt_ids);
 
 static struct platform_driver sun6i_rtc_driver = {
 	.probe		= sun6i_rtc_probe,
+	.shutdown	= sun6i_rtc_shutdown,
 	.driver		= {
 		.name		= "sun6i-rtc",
 		.of_match_table = sun6i_rtc_dt_ids,
+		.pm = &sun6i_rtc_pm_ops,
 	},
 };
 builtin_platform_driver(sun6i_rtc_driver);

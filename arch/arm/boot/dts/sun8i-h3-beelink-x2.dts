@@ -111,6 +111,17 @@
 		#sound-dai-cells = <0>;
 		compatible = "linux,spdif-dit";
 	};
+
+	r_gpio_keys {
+		compatible = "gpio-keys";
+
+		power {
+			label = "power";
+			linux,code = <KEY_POWER>;
+			gpios = <&r_pio 0 3 GPIO_ACTIVE_LOW>;
+			wakeup-source;
+		};
+	};
 };
 
 &de {
@@ -140,14 +151,6 @@
 	hdmi_out_con: endpoint {
 		remote-endpoint = <&hdmi_con_in>;
 	};
-};
-
-&hdmi_sound {
-	status = "okay";
-};
-
-&i2s2 {
-	status = "okay";
 };
 
 &ir {

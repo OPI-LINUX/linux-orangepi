@@ -12,6 +12,8 @@
 
 #include "sunxi_engine.h"
 
+#define SUN8I_MIXER_MAX_CHANNELS		5
+
 #define SUN8I_MIXER_SIZE(w, h)			(((h) - 1) << 16 | ((w) - 1))
 #define SUN8I_MIXER_COORD(x, y)			((y) << 16 | (x))
 
@@ -50,10 +52,8 @@
 #define SUN8I_MIXER_BLEND_CK_MIN(base, x)	((base) + 0xe0 + 0x04 * (x))
 #define SUN8I_MIXER_BLEND_OUTCTL(base)		((base) + 0xfc)
 #define SUN50I_MIXER_BLEND_CSC_CTL(base)	((base) + 0x100)
-#define SUN50I_MIXER_BLEND_CSC_COEFF(base, layer, x, y) \
-	((base) + 0x110 + (layer) * 0x30 +  (x) * 0x10 + 4 * (y))
-#define SUN50I_MIXER_BLEND_CSC_CONST(base, layer, i) \
-	((base) + 0x110 + (layer) * 0x30 +  (i) * 0x10 + 0x0c)
+#define SUN50I_MIXER_BLEND_CSC_COEFF(base, layer, x) \
+	((base) + 0x110 + (layer) * 0x30 + (x) * 4)
 
 #define SUN8I_MIXER_BLEND_PIPE_CTL_EN_MSK	GENMASK(12, 8)
 #define SUN8I_MIXER_BLEND_PIPE_CTL_EN(pipe)	BIT(8 + pipe)
@@ -120,6 +120,10 @@
 /* format 20 is packed YVU444 10-bit */
 /* format 21 is packed YUV444 10-bit */
 
+/* The DCSC sub-engine is used to do color space conversation */
+#define SUN8I_MIXER_DCSC_EN			0xb0000
+#define SUN8I_MIXER_DCSC_COEF_REG(x)		(0xb0010 + 0x4 * (x))
+
 /*
  * Sub-engines listed bellow are unused for now. The EN registers are here only
  * to be used to disable these sub-engines.
@@ -130,7 +134,6 @@
 #define SUN8I_MIXER_PEAK_EN			0xa6000
 #define SUN8I_MIXER_ASE_EN			0xa8000
 #define SUN8I_MIXER_FCC_EN			0xaa000
-#define SUN8I_MIXER_DCSC_EN			0xb0000
 
 #define SUN50I_MIXER_FCE_EN			0x70000
 #define SUN50I_MIXER_PEAK_EN			0x70800
@@ -180,8 +183,8 @@ struct sun8i_mixer {
 	struct clk			*bus_clk;
 	struct clk			*mod_clk;
 
-	struct sun4i_drv		*drv;
-	bool				hw_preconfigured;
+	/* -1 means that layer is disabled */
+	int channel_zpos[SUN8I_MIXER_MAX_CHANNELS];
 };
 
 static inline struct sun8i_mixer *

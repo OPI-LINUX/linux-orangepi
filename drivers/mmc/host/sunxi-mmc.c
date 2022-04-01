@@ -244,7 +244,6 @@ struct sunxi_idma_des {
 
 struct sunxi_mmc_cfg {
 	u32 idma_des_size_bits;
-	u32 idma_des_shift;
 	const struct sunxi_mmc_clk_delay *clk_delays;
 
 	/* does the IP block support autocalibration? */
@@ -344,7 +343,7 @@ static int sunxi_mmc_init_host(struct sunxi_mmc_host *host)
 	/* Enable CEATA support */
 	mmc_writel(host, REG_FUNS, SDXC_CEATA_ON);
 	/* Set DMA descriptor list base address */
-	mmc_writel(host, REG_DLBA, host->sg_dma >> host->cfg->idma_des_shift);
+	mmc_writel(host, REG_DLBA, host->sg_dma);
 
 	rval = mmc_readl(host, REG_GCTRL);
 	rval |= SDXC_INTERRUPT_ENABLE_BIT;
@@ -374,10 +373,8 @@ static void sunxi_mmc_init_idma_des(struct sunxi_mmc_host *host,
 
 		next_desc += sizeof(struct sunxi_idma_des);
 		pdes[i].buf_addr_ptr1 =
-			cpu_to_le32(sg_dma_address(&data->sg[i]) >>
-				    host->cfg->idma_des_shift);
-		pdes[i].buf_addr_ptr2 = cpu_to_le32((u32)next_desc >>
-						    host->cfg->idma_des_shift);
+			cpu_to_le32(sg_dma_address(&data->sg[i]));
+		pdes[i].buf_addr_ptr2 = cpu_to_le32((u32)next_desc);
 	}
 
 	pdes[0].config |= cpu_to_le32(SDXC_IDMAC_DES0_FD);
@@ -947,15 +944,9 @@ static void sunxi_mmc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
 	struct sunxi_mmc_host *host = mmc_priv(mmc);
 
-	if (ios->power_mode == MMC_POWER_OFF)
-		sunxi_mmc_reset_host(host);
-
 	sunxi_mmc_card_power(host, ios);
 	sunxi_mmc_set_bus_width(host, ios->bus_width);
 	sunxi_mmc_set_clk(host, ios);
-
-	if (ios->power_mode == MMC_POWER_UP)
-		sunxi_mmc_init_host(host);
 }
 
 static int sunxi_mmc_volt_switch(struct mmc_host *mmc, struct mmc_ios *ios)
@@ -981,8 +972,8 @@ static void sunxi_mmc_enable_sdio_irq(struct mmc_host *mmc, int enable)
 	unsigned long flags;
 	u32 imask;
 
-	//if (enable)
-		//pm_runtime_get_noresume(host->dev);
+	if (enable)
+		pm_runtime_get_noresume(host->dev);
 
 	spin_lock_irqsave(&host->lock, flags);
 
@@ -997,8 +988,8 @@ static void sunxi_mmc_enable_sdio_irq(struct mmc_host *mmc, int enable)
 	mmc_writel(host, REG_IMASK, imask);
 	spin_unlock_irqrestore(&host->lock, flags);
 
-	//if (!enable)
-		//pm_runtime_put_noidle(host->mmc->parent);
+	if (!enable)
+		pm_runtime_put_noidle(host->mmc->parent);
 }
 
 static void sunxi_mmc_hw_reset(struct mmc_host *mmc)
@@ -1187,30 +1178,6 @@ static const struct sunxi_mmc_cfg sun50i_a64_emmc_cfg = {
 	.needs_new_timings = true,
 };
 
-static const struct sunxi_mmc_cfg sun50i_h5_emmc_cfg = {
-	.idma_des_size_bits = 13,
-	.clk_delays = NULL,
-	.can_calibrate = true,
-	.needs_new_timings = false,
-};
-
-static const struct sunxi_mmc_cfg sun50i_a100_cfg = {
-	.idma_des_size_bits = 16,
-	.idma_des_shift = 2,
-	.clk_delays = NULL,
-	.can_calibrate = true,
-	.mask_data0 = true,
-	.needs_new_timings = true,
-};
-
-static const struct sunxi_mmc_cfg sun50i_a100_emmc_cfg = {
-	.idma_des_size_bits = 13,
-	.idma_des_shift = 2,
-	.clk_delays = NULL,
-	.can_calibrate = true,
-	.needs_new_timings = true,
-};
-
 static const struct of_device_id sunxi_mmc_of_match[] = {
 	{ .compatible = "allwinner,sun4i-a10-mmc", .data = &sun4i_a10_cfg },
 	{ .compatible = "allwinner,sun5i-a13-mmc", .data = &sun5i_a13_cfg },
@@ -1219,10 +1186,6 @@ static const struct of_device_id sunxi_mmc_of_match[] = {
 	{ .compatible = "allwinner,sun9i-a80-mmc", .data = &sun9i_a80_cfg },
 	{ .compatible = "allwinner,sun50i-a64-mmc", .data = &sun50i_a64_cfg },
 	{ .compatible = "allwinner,sun50i-a64-emmc", .data = &sun50i_a64_emmc_cfg },
-	{ .compatible = "allwinner,sun50i-h6-emmc", .data = &sun50i_a64_emmc_cfg },
-	{ .compatible = "allwinner,sun50i-h5-emmc", .data = &sun50i_h5_emmc_cfg },
-	{ .compatible = "allwinner,sun50i-a100-mmc", .data = &sun50i_a100_cfg },
-	{ .compatible = "allwinner,sun50i-a100-emmc", .data = &sun50i_a100_emmc_cfg },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, sunxi_mmc_of_match);
@@ -1434,19 +1397,18 @@ static int sunxi_mmc_probe(struct platform_device *pdev)
 				  MMC_CAP_SDIO_IRQ;
 
 	/*
-	 * Some H5 and H6 devices do not have signal traces precise enough to
-	 * use HS DDR mode for their eMMC chips.
+	 * Some H5 devices do not have signal traces precise enough to
+	 * use HS DDR mode for their eMMC chips. Other H6 devices operate
+	 * unreliably on HS DDR mode, too.
 	 *
 	 * We still enable HS DDR modes for all the other controller
-	 * variants that support them.
+	 * variants that support them properly.
 	 */
 	if ((host->cfg->clk_delays || host->use_new_timings) &&
 	    !of_device_is_compatible(pdev->dev.of_node,
 				     "allwinner,sun50i-h5-emmc") &&
 	    !of_device_is_compatible(pdev->dev.of_node,
-				     "allwinner,sun50i-h6-emmc") &&
-	    !of_machine_is_compatible("allwinner,sun7i-a20") &&
-	    !of_machine_is_compatible("olimex,a64-olinuxino-2ge8g"))
+				     "allwinner,sun50i-h6-emmc"))
 		mmc->caps      |= MMC_CAP_1_8V_DDR | MMC_CAP_3_3V_DDR;
 
 	ret = mmc_of_parse(mmc);
@@ -1472,10 +1434,10 @@ static int sunxi_mmc_probe(struct platform_device *pdev)
 	if (ret)
 		goto error_free_dma;
 
-	//pm_runtime_set_active(&pdev->dev);
-	//pm_runtime_set_autosuspend_delay(&pdev->dev, 50);
-	//pm_runtime_use_autosuspend(&pdev->dev);
-	//pm_runtime_enable(&pdev->dev);
+	pm_runtime_set_active(&pdev->dev);
+	pm_runtime_set_autosuspend_delay(&pdev->dev, 50);
+	pm_runtime_use_autosuspend(&pdev->dev);
+	pm_runtime_enable(&pdev->dev);
 
 	ret = mmc_add_host(mmc);
 	if (ret)
@@ -1500,7 +1462,7 @@ static int sunxi_mmc_remove(struct platform_device *pdev)
 	struct sunxi_mmc_host *host = mmc_priv(mmc);
 
 	mmc_remove_host(mmc);
-	//pm_runtime_force_suspend(&pdev->dev);
+	pm_runtime_force_suspend(&pdev->dev);
 	disable_irq(host->irq);
 	sunxi_mmc_disable(host);
 	dma_free_coherent(&pdev->dev, PAGE_SIZE, host->sg_cpu, host->sg_dma);
@@ -1539,6 +1501,7 @@ static int sunxi_mmc_runtime_suspend(struct device *dev)
 	 * Disabling the irq  will prevent this.
 	 */
 	disable_irq(host->irq);
+	sunxi_mmc_reset_host(host);
 	sunxi_mmc_disable(host);
 
 	return 0;
@@ -1546,6 +1509,8 @@ static int sunxi_mmc_runtime_suspend(struct device *dev)
 #endif
 
 static const struct dev_pm_ops sunxi_mmc_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
+				pm_runtime_force_resume)
 	SET_RUNTIME_PM_OPS(sunxi_mmc_runtime_suspend,
 			   sunxi_mmc_runtime_resume,
 			   NULL)
@@ -1556,7 +1521,7 @@ static struct platform_driver sunxi_mmc_driver = {
 		.name	= "sunxi-mmc",
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 		.of_match_table = of_match_ptr(sunxi_mmc_of_match),
-		//.pm = &sunxi_mmc_pm_ops,
+		.pm = &sunxi_mmc_pm_ops,
 	},
 	.probe		= sunxi_mmc_probe,
 	.remove		= sunxi_mmc_remove,

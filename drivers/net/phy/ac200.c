@@ -2,10 +2,9 @@
 /**
  * Driver for AC200 Ethernet PHY
  *
- * Copyright (c) 2020 Jernej Skrabec <jernej.skrabec@siol.net>
+ * Copyright (c) 2019 Jernej Skrabec <jernej.skrabec@siol.net>
  */
 
-#include <linux/clk.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mfd/ac200.h>
@@ -36,12 +35,40 @@
 #define AC200_EPHY_CALIB(x)		(((x) & 0xF) << 12)
 
 struct ac200_ephy_dev {
-	struct clk		*clk;
 	struct phy_driver	*ephy;
 	struct regmap		*regmap;
 };
 
 static char *ac200_phy_name = "AC200 EPHY";
+
+static void disable_intelligent_ieee(struct phy_device *phydev)
+{
+	unsigned int value;
+
+	phy_write(phydev, 0x1f, 0x0100);	/* switch to page 1 */
+	value = phy_read(phydev, 0x17);
+	value &= ~BIT(3);			/* disable IEEE */
+	phy_write(phydev, 0x17, value);
+	phy_write(phydev, 0x1f, 0x0000);	/* switch to page 0 */
+}
+
+static void disable_802_3az_ieee(struct phy_device *phydev)
+{
+	unsigned int value;
+
+	phy_write(phydev, 0xd, 0x7);
+	phy_write(phydev, 0xe, 0x3c);
+	phy_write(phydev, 0xd, BIT(14) | 0x7);
+	value = phy_read(phydev, 0xe);
+	value &= ~BIT(1);
+	phy_write(phydev, 0xd, 0x7);
+	phy_write(phydev, 0xe, 0x3c);
+	phy_write(phydev, 0xd, BIT(14) | 0x7);
+	phy_write(phydev, 0xe, value);
+
+	phy_write(phydev, 0x1f, 0x0200);	/* switch to page 2 */
+	phy_write(phydev, 0x18, 0x0000);
+}
 
 static int ac200_ephy_config_init(struct phy_device *phydev)
 {
@@ -63,31 +90,30 @@ static int ac200_ephy_config_init(struct phy_device *phydev)
 	phy_write(phydev, 0x1f, 0x0800);	/* Switch to Page 6 */
 	phy_write(phydev, 0x18, 0x00bc);	/* PHYAFE TRX optimization */
 
-	phy_write(phydev, 0x1f, 0x0100);	/* switch to page 1 */
-	phy_clear_bits(phydev, 0x17, BIT(3));	/* disable intelligent IEEE */
+	disable_intelligent_ieee(phydev);	/* Disable Intelligent IEEE */
+	disable_802_3az_ieee(phydev);		/* Disable 802.3az IEEE */
+	phy_write(phydev, 0x1f, 0x0000);	/* Switch to Page 0 */
 
-	/* next two blocks disable 802.3az IEEE */
-	phy_write(phydev, 0x1f, 0x0200);	/* switch to page 2 */
-	phy_write(phydev, 0x18, 0x0000);
-
-	phy_write(phydev, 0x1f, 0x0000);	/* switch to page 0 */
-	phy_clear_bits_mmd(phydev, 0x7, 0x3c, BIT(1));
-
-	if (phydev->interface == PHY_INTERFACE_MODE_RMII)
-		value = AC200_EPHY_XMII_SEL;
-	else
-		value = 0;
-
+	value = (phydev->interface == PHY_INTERFACE_MODE_RMII) ?
+		AC200_EPHY_XMII_SEL : 0;
 	ret = regmap_update_bits(priv->regmap, AC200_EPHY_CTL,
 				 AC200_EPHY_XMII_SEL, value);
 	if (ret)
 		return ret;
 
-	/* FIXME: This is H6 specific */
-	phy_set_bits(phydev, 0x13, BIT(12));
+	/* FIXME: This is probably H6 specific */
+	value = phy_read(phydev, 0x13);
+	value |= BIT(12);
+	phy_write(phydev, 0x13, value);
 
 	return 0;
 }
+
+static const struct mdio_device_id __maybe_unused ac200_ephy_phy_tbl[] = {
+	{ AC200_EPHY_ID, AC200_EPHY_ID_MASK },
+	{ /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(mdio, ac200_ephy_phy_tbl);
 
 static int ac200_ephy_probe(struct platform_device *pdev)
 {
@@ -108,13 +134,7 @@ static int ac200_ephy_probe(struct platform_device *pdev)
 	if (!ephy)
 		return -ENOMEM;
 
-	priv->clk = devm_clk_get(dev, NULL);
-	if (IS_ERR(priv->clk)) {
-		dev_err(dev, "Can't obtain the clock!\n");
-		return PTR_ERR(priv->clk);
-	}
-
-	calcell = devm_nvmem_cell_get(dev, "calibration");
+	calcell = devm_nvmem_cell_get(dev, "ephy_calib");
 	if (IS_ERR(calcell)) {
 		dev_err(dev, "Unable to find calibration data!\n");
 		return PTR_ERR(calcell);
@@ -127,7 +147,7 @@ static int ac200_ephy_probe(struct platform_device *pdev)
 	}
 
 	if (callen != 2) {
-		dev_err(dev, "Calibration data has wrong length: 2 != %zu\n",
+		dev_err(dev, "Calibration data has wrong length: 2 != %lu\n",
 			callen);
 		kfree(caldata);
 		return -EINVAL;
@@ -135,10 +155,6 @@ static int ac200_ephy_probe(struct platform_device *pdev)
 
 	calib = *caldata + 3;
 	kfree(caldata);
-
-	ret = clk_prepare_enable(priv->clk);
-	if (ret)
-		return ret;
 
 	ephy->phy_id = AC200_EPHY_ID;
 	ephy->phy_id_mask = AC200_EPHY_ID_MASK;
@@ -193,8 +209,6 @@ static int ac200_ephy_remove(struct platform_device *pdev)
 	regmap_write(priv->regmap, AC200_EPHY_CTL, AC200_EPHY_SHUTDOWN);
 	regmap_write(priv->regmap, AC200_SYS_EPHY_CTL1, 0);
 	regmap_write(priv->regmap, AC200_SYS_EPHY_CTL0, 0);
-
-	clk_disable_unprepare(priv->clk);
 
 	return 0;
 }

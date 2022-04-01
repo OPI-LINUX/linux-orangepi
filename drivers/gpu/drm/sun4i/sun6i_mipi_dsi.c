@@ -732,7 +732,6 @@ static void sun6i_dsi_encoder_enable(struct drm_encoder *encoder)
 	reset_control_deassert(dsi->reset);
 	clk_prepare_enable(dsi->mod_clk);
 
-	if (!dsi->hw_preconfigured) {
 	/*
 	 * Enable the DSI block.
 	 */
@@ -759,7 +758,6 @@ static void sun6i_dsi_encoder_enable(struct drm_encoder *encoder)
 	sun6i_dsi_setup_inst_loop(dsi, mode);
 	sun6i_dsi_setup_format(dsi, mode);
 	sun6i_dsi_setup_timings(dsi, mode);
-	}
 
 	phy_init(dsi->dphy);
 
@@ -789,15 +787,11 @@ static void sun6i_dsi_encoder_enable(struct drm_encoder *encoder)
 	if (dsi->panel)
 		drm_panel_enable(dsi->panel);
 
-	if (!dsi->hw_preconfigured) {
 	sun6i_dsi_start(dsi, DSI_START_HSC);
 
 	udelay(1000);
 
 	sun6i_dsi_start(dsi, DSI_START_HSD);
-	}
-
-	dsi->hw_preconfigured = false;
 }
 
 static void sun6i_dsi_encoder_disable(struct drm_encoder *encoder)
@@ -858,7 +852,7 @@ static u32 sun6i_dsi_dcs_build_pkt_hdr(struct sun6i_dsi *dsi,
 {
 	u32 pkt = msg->type;
 
-	if (msg->type == MIPI_DSI_DCS_LONG_WRITE || msg->type == MIPI_DSI_GENERIC_LONG_WRITE) {
+	if (msg->type == MIPI_DSI_DCS_LONG_WRITE) {
 		pkt |= ((msg->tx_len) & 0xffff) << 8;
 		pkt |= (((msg->tx_len) >> 8) & 0xffff) << 16;
 	} else {
@@ -1021,7 +1015,6 @@ static ssize_t sun6i_dsi_transfer(struct mipi_dsi_host *host,
 		ret = sun6i_dsi_dcs_write_short(dsi, msg);
 		break;
 
-	case MIPI_DSI_GENERIC_LONG_WRITE:
 	case MIPI_DSI_DCS_LONG_WRITE:
 		ret = sun6i_dsi_dcs_write_long(dsi, msg);
 		break;
@@ -1113,7 +1106,6 @@ static int sun6i_dsi_probe(struct platform_device *pdev)
 	struct sun6i_dsi *dsi;
 	struct resource *res;
 	void __iomem *base;
-	u32 fb_start;
 	int ret;
 
 	dsi = devm_kzalloc(dev, sizeof(*dsi), GFP_KERNEL);
@@ -1123,12 +1115,6 @@ static int sun6i_dsi_probe(struct platform_device *pdev)
 	dsi->dev = dev;
 	dsi->host.ops = &sun6i_dsi_host_ops;
 	dsi->host.dev = dev;
-
-	ret = of_property_read_u32_index(of_chosen, "p-boot,framebuffer-start", 0, &fb_start);
-	if (ret == 0) {
-		/* the display pipeline is already initialized by p-boot */
-		dsi->hw_preconfigured = true;
-	}
 
 	if (of_device_is_compatible(dev->of_node,
 				    "allwinner,sun6i-a31-mipi-dsi"))
@@ -1143,8 +1129,7 @@ static int sun6i_dsi_probe(struct platform_device *pdev)
 
 	dsi->regulator = devm_regulator_get(dev, "vcc-dsi");
 	if (IS_ERR(dsi->regulator)) {
-		dev_err_probe(dev, PTR_ERR(dsi->regulator),
-			      "Couldn't get VCC-DSI supply\n");
+		dev_err(dev, "Couldn't get VCC-DSI supply\n");
 		return PTR_ERR(dsi->regulator);
 	}
 

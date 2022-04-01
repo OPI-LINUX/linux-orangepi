@@ -239,13 +239,6 @@ enum {
 	 */
 	HCI_QUIRK_BROKEN_ERR_DATA_REPORTING,
 
-	/* When this quirk is set, max_page for local extended features
-	 * is set to 1, even if controller reports higher number. Some
-	 * controllers (e.g. RTL8723CS) report more pages, but they
-	 * don't actually support features declared there.
-	 */
-	HCI_QUIRK_BROKEN_LOCAL_EXT_FTR_MAX_PAGE,
-
 	/*
 	 * When this quirk is set, then the hci_suspend_notifier is not
 	 * registered. This is intended for devices which drop completely

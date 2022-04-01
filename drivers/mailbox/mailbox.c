@@ -84,11 +84,9 @@ exit:
 
 	/* kick start the timer immediately to avoid delays */
 	if (!err && (chan->txdone_method & TXDONE_BY_POLL)) {
-		if (!timekeeping_suspended) {
-			/* but only if not already active */
-			if (!hrtimer_active(&chan->mbox->poll_hrt))
-				hrtimer_start(&chan->mbox->poll_hrt, 0, HRTIMER_MODE_REL);
-		}
+		/* but only if not already active */
+		if (!hrtimer_active(&chan->mbox->poll_hrt))
+			hrtimer_start(&chan->mbox->poll_hrt, 0, HRTIMER_MODE_REL);
 	}
 }
 
@@ -263,24 +261,6 @@ int mbox_send_message(struct mbox_chan *chan, void *mssg)
 	}
 
 	msg_submit(chan);
-
-	if (chan->cl->tx_block && timekeeping_suspended) {
-		int i = chan->cl->tx_tout * 10;
-		bool txdone;
-
-		while (i--) {
-			txdone = chan->mbox->ops->last_tx_done(chan);
-			if (txdone) {
-				tx_tick(chan, 0);
-				return 0;
-			}
-
-			udelay(100);
-		}
-
-		tx_tick(chan, -ETIME);
-		return -ETIME;
-	}
 
 	if (chan->cl->tx_block) {
 		unsigned long wait;

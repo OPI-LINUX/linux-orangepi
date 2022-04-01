@@ -569,7 +569,7 @@ static int sun8i_dwmac_init(struct platform_device *pdev, void *priv)
 	ret = clk_prepare_enable(gmac->tx_clk);
 	if (ret) {
 		dev_err(&pdev->dev, "Could not enable AHB clock\n");
-		goto err_disable_regulator_phy;
+		goto err_disable_regulator;
 	}
 
 	if (gmac->use_internal_phy) {
@@ -582,10 +582,11 @@ static int sun8i_dwmac_init(struct platform_device *pdev, void *priv)
 
 err_disable_clk:
 	clk_disable_unprepare(gmac->tx_clk);
-err_disable_regulator_phy:
+err_disable_regulator:
 	regulator_disable(gmac->regulator_phy);
 err_disable_regulator_phy_io:
 	regulator_disable(gmac->regulator_phy_io);
+
 	return ret;
 }
 
@@ -815,11 +816,9 @@ static int sun8i_dwmac_power_internal_phy(struct stmmac_priv *priv)
 	/* Make sure the EPHY is properly reseted, as U-Boot may leave
 	 * it at deasserted state, and thus it may fail to reset EMAC.
 	 */
-	reset_control_assert(gmac->rst_ephy);
-
-	ret = reset_control_deassert(gmac->rst_ephy);
+	ret = reset_control_reset(gmac->rst_ephy);
 	if (ret) {
-		dev_err(priv->device, "Cannot deassert internal phy\n");
+		dev_err(priv->device, "Cannot reset internal PHY\n");
 		clk_disable_unprepare(gmac->ephy_clk);
 		return ret;
 	}
@@ -829,15 +828,14 @@ static int sun8i_dwmac_power_internal_phy(struct stmmac_priv *priv)
 	return 0;
 }
 
-static int sun8i_dwmac_unpower_internal_phy(struct sunxi_priv_data *gmac)
+static void sun8i_dwmac_unpower_internal_phy(struct sunxi_priv_data *gmac)
 {
 	if (!gmac->internal_phy_powered)
-		return 0;
+		return;
 
 	clk_disable_unprepare(gmac->ephy_clk);
 	reset_control_assert(gmac->rst_ephy);
 	gmac->internal_phy_powered = false;
-	return 0;
 }
 
 /* MDIO multiplexing switch function
@@ -1028,10 +1026,8 @@ static void sun8i_dwmac_exit(struct platform_device *pdev, void *priv)
 {
 	struct sunxi_priv_data *gmac = priv;
 
-	if (gmac->variant->soc_has_internal_phy) {
-		if (gmac->internal_phy_powered)
-			sun8i_dwmac_unpower_internal_phy(gmac);
-	}
+	if (gmac->variant->soc_has_internal_phy)
+		sun8i_dwmac_unpower_internal_phy(gmac);
 
 	clk_disable_unprepare(gmac->tx_clk);
 
@@ -1166,9 +1162,7 @@ static int sun8i_dwmac_probe(struct platform_device *pdev)
 	/* Optional regulator for PHY */
 	gmac->regulator_phy = devm_regulator_get(dev, "phy");
 	if (IS_ERR(gmac->regulator_phy)) {
-		ret = PTR_ERR(gmac->regulator_phy);
-		if (ret != -EPROBE_DEFER)
-			dev_err(dev, "Failed to get PHY regulator (%d)\n", ret);
+		dev_err_probe(dev, ret, "Failed to get PHY regulator\n");
 		return ret;
 	}
 
@@ -1252,6 +1246,7 @@ static int sun8i_dwmac_probe(struct platform_device *pdev)
 
 	ndev = dev_get_drvdata(&pdev->dev);
 	priv = netdev_priv(ndev);
+
 	/* The mux must be registered after parent MDIO
 	 * so after stmmac_dvr_probe()
 	 */
@@ -1270,7 +1265,8 @@ static int sun8i_dwmac_probe(struct platform_device *pdev)
 			goto dwmac_remove;
 	}
 
-	return ret;
+	return 0;
+
 dwmac_mux:
 	reset_control_put(gmac->rst_ephy);
 	clk_put(gmac->ephy_clk);
@@ -1307,13 +1303,11 @@ static int sun8i_dwmac_remove(struct platform_device *pdev)
 
 static void sun8i_dwmac_shutdown(struct platform_device *pdev)
 {
-	struct net_device *ndev = dev_get_drvdata(&pdev->dev);;
+	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
 	struct sunxi_priv_data *gmac = priv->plat->bsp_priv;
 
-	dev_err(&pdev->dev, "Shutting down\n");
-	regulator_disable(gmac->regulator_phy);
-	regulator_disable(gmac->regulator_phy_io);
+	sun8i_dwmac_exit(pdev, gmac);
 }
 
 static const struct of_device_id sun8i_dwmac_match[] = {

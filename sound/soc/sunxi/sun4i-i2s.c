@@ -23,7 +23,7 @@
 
 #define SUN4I_I2S_CTRL_REG		0x00
 #define SUN4I_I2S_CTRL_SDO_EN_MASK		GENMASK(11, 8)
-#define SUN4I_I2S_CTRL_SDO_EN(sdo)			BIT(8 + (sdo))
+#define SUN4I_I2S_CTRL_SDO_EN(lines)		(((1 << (lines)) - 1) << 8)
 #define SUN4I_I2S_CTRL_MODE_MASK		BIT(5)
 #define SUN4I_I2S_CTRL_MODE_SLAVE			(1 << 5)
 #define SUN4I_I2S_CTRL_MODE_MASTER			(0 << 5)
@@ -116,16 +116,16 @@
 
 #define SUN8I_I2S_CHAN_CFG_REG		0x30
 #define SUN8I_I2S_CHAN_CFG_RX_SLOT_NUM_MASK	GENMASK(6, 4)
-#define SUN8I_I2S_CHAN_CFG_RX_SLOT_NUM(chan)	((chan - 1) << 4)
+#define SUN8I_I2S_CHAN_CFG_RX_SLOT_NUM(chan)	(((chan) - 1) << 4)
 #define SUN8I_I2S_CHAN_CFG_TX_SLOT_NUM_MASK	GENMASK(2, 0)
-#define SUN8I_I2S_CHAN_CFG_TX_SLOT_NUM(chan)	(chan - 1)
+#define SUN8I_I2S_CHAN_CFG_TX_SLOT_NUM(chan)	((chan) - 1)
 
-#define SUN8I_I2S_TX_CHAN_MAP_REG	0x44
-#define SUN8I_I2S_TX_CHAN_SEL_REG	0x34
+#define SUN8I_I2S_TX_CHAN_MAP_REG(i)	(0x44 + 4 * (i))
+#define SUN8I_I2S_TX_CHAN_SEL_REG(i)	(0x34 + 4 * (i))
 #define SUN8I_I2S_TX_CHAN_OFFSET_MASK		GENMASK(13, 12)
-#define SUN8I_I2S_TX_CHAN_OFFSET(offset)	(offset << 12)
+#define SUN8I_I2S_TX_CHAN_OFFSET(offset)	((offset) << 12)
 #define SUN8I_I2S_TX_CHAN_EN_MASK		GENMASK(11, 4)
-#define SUN8I_I2S_TX_CHAN_EN(num_chan)		(((1 << num_chan) - 1) << 4)
+#define SUN8I_I2S_TX_CHAN_EN(num_chan)		(((1 << (num_chan)) - 1) << 4)
 
 #define SUN8I_I2S_RX_CHAN_SEL_REG	0x54
 #define SUN8I_I2S_RX_CHAN_MAP_REG	0x58
@@ -134,12 +134,12 @@
 #define SUN50I_H6_I2S_TX_CHAN_SEL_OFFSET_MASK	GENMASK(21, 20)
 #define SUN50I_H6_I2S_TX_CHAN_SEL_OFFSET(offset)	((offset) << 20)
 #define SUN50I_H6_I2S_TX_CHAN_SEL_MASK		GENMASK(19, 16)
-#define SUN50I_H6_I2S_TX_CHAN_SEL(chan)		((chan - 1) << 16)
+#define SUN50I_H6_I2S_TX_CHAN_SEL(chan)		(((chan) - 1) << 16)
 #define SUN50I_H6_I2S_TX_CHAN_EN_MASK		GENMASK(15, 0)
-#define SUN50I_H6_I2S_TX_CHAN_EN(num_chan)	(((1 << num_chan) - 1))
+#define SUN50I_H6_I2S_TX_CHAN_EN(num_chan)	(((1 << (num_chan)) - 1))
 
-#define SUN50I_H6_I2S_TX_CHAN_MAP0_REG	0x44
-#define SUN50I_H6_I2S_TX_CHAN_MAP1_REG	0x48
+#define SUN50I_H6_I2S_TX_CHAN_MAP0_REG(i)	(0x44 + 8 * (i))
+#define SUN50I_H6_I2S_TX_CHAN_MAP1_REG(i)	(0x48 + 8 * (i))
 
 #define SUN50I_H6_I2S_RX_CHAN_SEL_REG	0x64
 #define SUN50I_H6_I2S_RX_CHAN_MAP0_REG	0x68
@@ -183,7 +183,13 @@ struct sun4i_i2s_quirks {
 	unsigned long (*get_bclk_parent_rate)(const struct sun4i_i2s *i2s);
 	int	(*get_sr)(unsigned int width);
 	int	(*get_wss)(unsigned int width);
-	int	(*set_chan_cfg)(const struct sun4i_i2s *i2s,
+
+	/*
+	 * In the set_chan_cfg() function pointer:
+	 * @slots: channels per frame + padding slots, regardless of format
+	 * @slot_width: bits per sample + padding bits, regardless of format
+	 */
+	int	(*set_chan_cfg)(struct sun4i_i2s *i2s,
 				unsigned int channels,	unsigned int slots,
 				unsigned int slot_width);
 	int	(*set_fmt)(const struct sun4i_i2s *i2s, unsigned int fmt);
@@ -199,6 +205,7 @@ struct sun4i_i2s {
 	unsigned int	mclk_freq;
 	unsigned int	slots;
 	unsigned int	slot_width;
+	unsigned int	lines;
 
 	struct snd_dmaengine_dai_dma_data	capture_dma_data;
 	struct snd_dmaengine_dai_dma_data	playback_dma_data;
@@ -391,11 +398,11 @@ static int sun4i_i2s_get_sr(unsigned int width)
 {
 	switch (width) {
 	case 16:
-		return 0x0;
+		return 0;
 	case 20:
-		return 0x1;
+		return 1;
 	case 24:
-		return 0x2;
+		return 2;
 	}
 
 	return -EINVAL;
@@ -405,13 +412,13 @@ static int sun4i_i2s_get_wss(unsigned int width)
 {
 	switch (width) {
 	case 16:
-		return 0x0;
+		return 0;
 	case 20:
-		return 0x1;
+		return 1;
 	case 24:
-		return 0x2;
+		return 2;
 	case 32:
-		return 0x3;
+		return 3;
 	}
 
 	return -EINVAL;
@@ -421,25 +428,25 @@ static int sun8i_i2s_get_sr_wss(unsigned int width)
 {
 	switch (width) {
 	case 8:
-		return 0x1;
+		return 1;
 	case 12:
-		return 0x2;
+		return 2;
 	case 16:
-		return 0x3;
+		return 3;
 	case 20:
-		return 0x4;
+		return 4;
 	case 24:
-		return 0x5;
+		return 5;
 	case 28:
-		return 0x6;
+		return 6;
 	case 32:
-		return 0x7;
+		return 7;
 	}
 
 	return -EINVAL;
 }
 
-static int sun4i_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
+static int sun4i_i2s_set_chan_cfg(struct sun4i_i2s *i2s,
 				  unsigned int channels, unsigned int slots,
 				  unsigned int slot_width)
 {
@@ -458,20 +465,42 @@ static int sun4i_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
 	return 0;
 }
 
-static int sun8i_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
+static int sun8i_i2s_set_chan_cfg(struct sun4i_i2s *i2s,
 				  unsigned int channels, unsigned int slots,
 				  unsigned int slot_width)
 {
-	unsigned int lrck_period;
+	unsigned int lrck_period, val;
+	int i;
+
+	i2s->lines = (channels + 1) / 2;
+
+	/* Enable the required output lines */
+	regmap_update_bits(i2s->regmap, SUN4I_I2S_CTRL_REG,
+			   SUN4I_I2S_CTRL_SDO_EN_MASK,
+			   SUN4I_I2S_CTRL_SDO_EN(i2s->lines));
 
 	/* Map the channels for playback and capture */
-	regmap_write(i2s->regmap, SUN8I_I2S_TX_CHAN_MAP_REG, 0x76543210);
+	regmap_write(i2s->regmap, SUN8I_I2S_TX_CHAN_MAP_REG(0), 0x76543210);
+	regmap_write(i2s->regmap, SUN8I_I2S_TX_CHAN_MAP_REG(1), 0x32);
+	regmap_write(i2s->regmap, SUN8I_I2S_TX_CHAN_MAP_REG(2), 0x54);
+	regmap_write(i2s->regmap, SUN8I_I2S_TX_CHAN_MAP_REG(3), 0x76);
 	regmap_write(i2s->regmap, SUN8I_I2S_RX_CHAN_MAP_REG, 0x76543210);
 
 	/* Configure the channels */
-	regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG,
-			   SUN4I_I2S_CHAN_SEL_MASK,
-			   SUN4I_I2S_CHAN_SEL(channels));
+	for (i = 0; i < 4; i++) {
+		if (channels <= i * 2)
+			val = 0;
+		else if (channels == i * 2 + 1)
+			val = 1;
+		else
+			val = 2;
+		regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG(i),
+				   SUN4I_I2S_CHAN_SEL_MASK |
+				   SUN8I_I2S_TX_CHAN_EN_MASK,
+				   SUN4I_I2S_CHAN_SEL(val) |
+				   SUN8I_I2S_TX_CHAN_EN(val));
+	}
+
 	regmap_update_bits(i2s->regmap, SUN8I_I2S_RX_CHAN_SEL_REG,
 			   SUN4I_I2S_CHAN_SEL_MASK,
 			   SUN4I_I2S_CHAN_SEL(channels));
@@ -503,27 +532,47 @@ static int sun8i_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
 			   SUN8I_I2S_FMT0_LRCK_PERIOD_MASK,
 			   SUN8I_I2S_FMT0_LRCK_PERIOD(lrck_period));
 
-	regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG,
-			   SUN8I_I2S_TX_CHAN_EN_MASK,
-			   SUN8I_I2S_TX_CHAN_EN(channels));
-
 	return 0;
 }
 
-static int sun50i_h6_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
+static int sun50i_h6_i2s_set_chan_cfg(struct sun4i_i2s *i2s,
 				      unsigned int channels, unsigned int slots,
 				      unsigned int slot_width)
 {
-	unsigned int lrck_period;
+	unsigned int lrck_period, val;
+	int i;
+
+	i2s->lines = (channels + 1) / 2;
+
+	/* Enable the required output lines */
+	regmap_update_bits(i2s->regmap, SUN4I_I2S_CTRL_REG,
+			   SUN4I_I2S_CTRL_SDO_EN_MASK,
+			   SUN4I_I2S_CTRL_SDO_EN(i2s->lines));
 
 	/* Map the channels for playback and capture */
-	regmap_write(i2s->regmap, SUN50I_H6_I2S_TX_CHAN_MAP1_REG, 0x76543210);
+	regmap_write(i2s->regmap, SUN50I_H6_I2S_TX_CHAN_MAP0_REG(0), 0xFEDCBA98);
+	regmap_write(i2s->regmap, SUN50I_H6_I2S_TX_CHAN_MAP1_REG(0), 0x76543210);
+	regmap_write(i2s->regmap, SUN50I_H6_I2S_TX_CHAN_MAP1_REG(1), 0x32);
+	regmap_write(i2s->regmap, SUN50I_H6_I2S_TX_CHAN_MAP1_REG(2), 0x54);
+	regmap_write(i2s->regmap, SUN50I_H6_I2S_TX_CHAN_MAP1_REG(3), 0x76);
+	regmap_write(i2s->regmap, SUN50I_H6_I2S_RX_CHAN_MAP0_REG, 0xFEDCBA98);
 	regmap_write(i2s->regmap, SUN50I_H6_I2S_RX_CHAN_MAP1_REG, 0x76543210);
 
 	/* Configure the channels */
-	regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG,
-			   SUN50I_H6_I2S_TX_CHAN_SEL_MASK,
-			   SUN50I_H6_I2S_TX_CHAN_SEL(channels));
+	for (i = 0; i < 4; i++) {
+		if (channels <= i * 2)
+			val = 0;
+		else if (channels == i * 2 + 1)
+			val = 1;
+		else
+			val = 2;
+		regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG(i),
+				   SUN50I_H6_I2S_TX_CHAN_SEL_MASK |
+				   SUN50I_H6_I2S_TX_CHAN_EN_MASK,
+				   SUN50I_H6_I2S_TX_CHAN_SEL(val) |
+				   SUN50I_H6_I2S_TX_CHAN_EN(val));
+	}
+
 	regmap_update_bits(i2s->regmap, SUN50I_H6_I2S_RX_CHAN_SEL_REG,
 			   SUN50I_H6_I2S_TX_CHAN_SEL_MASK,
 			   SUN50I_H6_I2S_TX_CHAN_SEL(channels));
@@ -555,10 +604,6 @@ static int sun50i_h6_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
 			   SUN8I_I2S_FMT0_LRCK_PERIOD_MASK,
 			   SUN8I_I2S_FMT0_LRCK_PERIOD(lrck_period));
 
-	regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG,
-			   SUN50I_H6_I2S_TX_CHAN_EN_MASK,
-			   SUN50I_H6_I2S_TX_CHAN_EN(channels));
-
 	return 0;
 }
 
@@ -570,7 +615,9 @@ static int sun4i_i2s_hw_params(struct snd_pcm_substream *substream,
 	unsigned int word_size = params_width(params);
 	unsigned int slot_width = params_physical_width(params);
 	unsigned int channels = params_channels(params);
+
 	unsigned int slots = channels;
+
 	int ret, sr, wss;
 	u32 width;
 
@@ -701,6 +748,7 @@ static int sun8i_i2s_set_soc_fmt(const struct sun4i_i2s *i2s,
 {
 	u32 mode, val;
 	u8 offset;
+	int i;
 
 	/*
 	 * DAI clock polarity
@@ -768,9 +816,10 @@ static int sun8i_i2s_set_soc_fmt(const struct sun4i_i2s *i2s,
 
 	regmap_update_bits(i2s->regmap, SUN4I_I2S_CTRL_REG,
 			   SUN8I_I2S_CTRL_MODE_MASK, mode);
-	regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG,
-			   SUN8I_I2S_TX_CHAN_OFFSET_MASK,
-			   SUN8I_I2S_TX_CHAN_OFFSET(offset));
+	for (i = 0; i < 4; i++)
+		regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG(i),
+				   SUN8I_I2S_TX_CHAN_OFFSET_MASK,
+				   SUN8I_I2S_TX_CHAN_OFFSET(offset));
 	regmap_update_bits(i2s->regmap, SUN8I_I2S_RX_CHAN_SEL_REG,
 			   SUN8I_I2S_TX_CHAN_OFFSET_MASK,
 			   SUN8I_I2S_TX_CHAN_OFFSET(offset));
@@ -808,6 +857,7 @@ static int sun50i_h6_i2s_set_soc_fmt(const struct sun4i_i2s *i2s,
 {
 	u32 mode, val;
 	u8 offset;
+	int i;
 
 	/*
 	 * DAI clock polarity
@@ -875,9 +925,10 @@ static int sun50i_h6_i2s_set_soc_fmt(const struct sun4i_i2s *i2s,
 
 	regmap_update_bits(i2s->regmap, SUN4I_I2S_CTRL_REG,
 			   SUN8I_I2S_CTRL_MODE_MASK, mode);
-	regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG,
-			   SUN50I_H6_I2S_TX_CHAN_SEL_OFFSET_MASK,
-			   SUN50I_H6_I2S_TX_CHAN_SEL_OFFSET(offset));
+	for (i = 0; i < 4; i++)
+		regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG(i),
+				   SUN50I_H6_I2S_TX_CHAN_SEL_OFFSET_MASK,
+				   SUN50I_H6_I2S_TX_CHAN_SEL_OFFSET(offset));
 	regmap_update_bits(i2s->regmap, SUN50I_H6_I2S_RX_CHAN_SEL_REG,
 			   SUN50I_H6_I2S_TX_CHAN_SEL_OFFSET_MASK,
 			   SUN50I_H6_I2S_TX_CHAN_SEL_OFFSET(offset));
@@ -1188,8 +1239,14 @@ static const struct reg_default sun8i_i2s_reg_defaults[] = {
 	{ SUN4I_I2S_DMA_INT_CTRL_REG, 0x00000000 },
 	{ SUN4I_I2S_CLK_DIV_REG, 0x00000000 },
 	{ SUN8I_I2S_CHAN_CFG_REG, 0x00000000 },
-	{ SUN8I_I2S_TX_CHAN_SEL_REG, 0x00000000 },
-	{ SUN8I_I2S_TX_CHAN_MAP_REG, 0x00000000 },
+	{ SUN8I_I2S_TX_CHAN_SEL_REG(0), 0x00000000 },
+	{ SUN8I_I2S_TX_CHAN_SEL_REG(1), 0x00000000 },
+	{ SUN8I_I2S_TX_CHAN_SEL_REG(2), 0x00000000 },
+	{ SUN8I_I2S_TX_CHAN_SEL_REG(3), 0x00000000 },
+	{ SUN8I_I2S_TX_CHAN_MAP_REG(0), 0x00000000 },
+	{ SUN8I_I2S_TX_CHAN_MAP_REG(1), 0x00000000 },
+	{ SUN8I_I2S_TX_CHAN_MAP_REG(2), 0x00000000 },
+	{ SUN8I_I2S_TX_CHAN_MAP_REG(3), 0x00000000 },
 	{ SUN8I_I2S_RX_CHAN_SEL_REG, 0x00000000 },
 	{ SUN8I_I2S_RX_CHAN_MAP_REG, 0x00000000 },
 };
@@ -1202,9 +1259,18 @@ static const struct reg_default sun50i_h6_i2s_reg_defaults[] = {
 	{ SUN4I_I2S_DMA_INT_CTRL_REG, 0x00000000 },
 	{ SUN4I_I2S_CLK_DIV_REG, 0x00000000 },
 	{ SUN8I_I2S_CHAN_CFG_REG, 0x00000000 },
-	{ SUN8I_I2S_TX_CHAN_SEL_REG, 0x00000000 },
-	{ SUN50I_H6_I2S_TX_CHAN_MAP0_REG, 0x00000000 },
-	{ SUN50I_H6_I2S_TX_CHAN_MAP1_REG, 0x00000000 },
+	{ SUN8I_I2S_TX_CHAN_SEL_REG(0), 0x00000000 },
+	{ SUN8I_I2S_TX_CHAN_SEL_REG(1), 0x00000000 },
+	{ SUN8I_I2S_TX_CHAN_SEL_REG(2), 0x00000000 },
+	{ SUN8I_I2S_TX_CHAN_SEL_REG(3), 0x00000000 },
+	{ SUN50I_H6_I2S_TX_CHAN_MAP0_REG(0), 0x00000000 },
+	{ SUN50I_H6_I2S_TX_CHAN_MAP1_REG(0), 0x00000000 },
+	{ SUN50I_H6_I2S_TX_CHAN_MAP0_REG(1), 0x00000000 },
+	{ SUN50I_H6_I2S_TX_CHAN_MAP1_REG(1), 0x00000000 },
+	{ SUN50I_H6_I2S_TX_CHAN_MAP0_REG(2), 0x00000000 },
+	{ SUN50I_H6_I2S_TX_CHAN_MAP1_REG(2), 0x00000000 },
+	{ SUN50I_H6_I2S_TX_CHAN_MAP0_REG(3), 0x00000000 },
+	{ SUN50I_H6_I2S_TX_CHAN_MAP1_REG(3), 0x00000000 },
 	{ SUN50I_H6_I2S_RX_CHAN_SEL_REG, 0x00000000 },
 	{ SUN50I_H6_I2S_RX_CHAN_MAP0_REG, 0x00000000 },
 	{ SUN50I_H6_I2S_RX_CHAN_MAP1_REG, 0x00000000 },
@@ -1277,7 +1343,7 @@ static int sun4i_i2s_runtime_resume(struct device *dev)
 	/* Enable the first output line */
 	regmap_update_bits(i2s->regmap, SUN4I_I2S_CTRL_REG,
 			   SUN4I_I2S_CTRL_SDO_EN_MASK,
-			   SUN4I_I2S_CTRL_SDO_EN(0));
+			   SUN4I_I2S_CTRL_SDO_EN(i2s->lines));
 
 	ret = clk_prepare_enable(i2s->mod_clk);
 	if (ret) {
@@ -1519,6 +1585,7 @@ static int sun4i_i2s_probe(struct platform_device *pdev)
 
 	i2s->capture_dma_data.addr = res->start + SUN4I_I2S_FIFO_RX_REG;
 	i2s->capture_dma_data.maxburst = 8;
+	i2s->lines = 1;
 
 	pm_runtime_enable(&pdev->dev);
 	if (!pm_runtime_enabled(&pdev->dev)) {

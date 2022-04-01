@@ -23,21 +23,15 @@
 
 #include "ccu-sun8i-h3.h"
 
-static struct ccu_nkmp pll_cpux_clk = {
-	.enable		= BIT(31),
-	.lock		= BIT(28),
-	.n		= _SUNXI_CCU_MULT(8, 5),
-	.k		= _SUNXI_CCU_MULT(4, 2),
-	.m		= _SUNXI_CCU_DIV_MAX(0, 2, 1),
-	.p		= _SUNXI_CCU_DIV_MAX(16, 2, 1),
-	.common		= {
-		.reg		= 0x000,
-		.hw.init	= CLK_HW_INIT("pll-cpux",
-					      "osc24M",
-					      &ccu_nkmp_ops,
-					      CLK_SET_RATE_UNGATE),
-	},
-};
+static SUNXI_CCU_NKMP_WITH_GATE_LOCK(pll_cpux_clk, "pll-cpux",
+				     "osc24M", 0x000,
+				     8, 5,	/* N */
+				     4, 2,	/* K */
+				     0, 2,	/* M */
+				     16, 2,	/* P */
+				     BIT(31),	/* gate */
+				     BIT(28),	/* lock */
+				     CLK_SET_RATE_UNGATE);
 
 /*
  * The Audio PLL is supposed to have 4 outputs: 3 fixed factors from
@@ -462,8 +456,18 @@ static SUNXI_CCU_M_WITH_MUX_GATE(tcon_clk, "tcon", tcon_parents,
 				 CLK_SET_RATE_PARENT);
 
 static const char * const tve_parents[] = { "pll-de", "pll-periph1" };
-static SUNXI_CCU_M_WITH_MUX_GATE(tve_clk, "tve", tve_parents,
-				 0x120, 0, 4, 24, 3, BIT(31), 0);
+struct ccu_div tve_clk = {
+	.enable	= BIT(31),
+	.div	= _SUNXI_CCU_DIV(0, 4),
+	.mux	= _SUNXI_CCU_MUX(24, 3),
+	.fixed_post_div = 16,
+	.common	= {
+		.reg		= 0x120,
+		.features	= CCU_FEATURE_FIXED_POSTDIV,
+		.hw.init	= CLK_HW_INIT_PARENTS("tve", tve_parents,
+						      &ccu_div_ops, 0),
+	},
+};
 
 static const char * const deinterlace_parents[] = { "pll-periph0", "pll-periph1" };
 static SUNXI_CCU_M_WITH_MUX_GATE(deinterlace_clk, "deinterlace", deinterlace_parents,
@@ -1129,6 +1133,20 @@ static const struct sunxi_ccu_desc sun50i_h5_ccu_desc = {
 	.num_resets	= ARRAY_SIZE(sun50i_h5_ccu_resets),
 };
 
+static struct ccu_pll_nb sun8i_h3_pll_cpu_nb = {
+	.common	= &pll_cpux_clk.common,
+	/* copy from pll_cpux_clk */
+	.enable	= BIT(31),
+	.lock	= BIT(28),
+};
+
+static struct ccu_mux_nb sun8i_h3_cpu_nb = {
+	.common		= &cpux_clk.common,
+	.cm		= &cpux_clk.mux,
+	.delay_us	= 1, /* > 8 clock cycles at 24 MHz */
+	.bypass_index	= 1, /* index of 24 MHz oscillator */
+};
+
 static void __init sunxi_h3_h5_ccu_init(struct device_node *node,
 					const struct sunxi_ccu_desc *desc)
 {
@@ -1147,6 +1165,13 @@ static void __init sunxi_h3_h5_ccu_init(struct device_node *node,
 	writel(val | (0 << 16), reg + SUN8I_H3_PLL_AUDIO_REG);
 
 	sunxi_ccu_probe(node, reg, desc);
+
+	/* Gate then ungate PLL CPU after any rate changes */
+	ccu_pll_notifier_register(&sun8i_h3_pll_cpu_nb);
+
+	/* Reparent CPU during PLL CPU rate changes */
+	ccu_mux_notifier_register(pll_cpux_clk.common.hw.clk,
+				  &sun8i_h3_cpu_nb);
 }
 
 static void __init sun8i_h3_ccu_setup(struct device_node *node)
