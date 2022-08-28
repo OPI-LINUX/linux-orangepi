@@ -90,7 +90,6 @@ struct sunxi_ir {
 	void __iomem    *base;
 	int             irq;
 	int		fifo_size;
-	u32		base_clk_freq;
 	struct clk      *clk;
 	struct clk      *apb_clk;
 	struct reset_control *rst;
@@ -127,7 +126,7 @@ static irqreturn_t sunxi_ir_irq(int irqno, void *dev_id)
 	}
 
 	if (status & REG_RXSTA_ROI) {
-		ir_raw_event_reset(ir->rc);
+		ir_raw_event_overflow(ir->rc);
 	} else if (status & REG_RXSTA_RPE) {
 		ir_raw_event_set_idle(ir->rc, true);
 		ir_raw_event_handle(ir->rc);
@@ -173,30 +172,23 @@ static int sunxi_ir_set_timeout(struct rc_dev *rc_dev, unsigned int timeout)
 static int sunxi_ir_hw_init(struct device *dev)
 {
 	struct sunxi_ir *ir = dev_get_drvdata(dev);
-	unsigned long tmp;
+	u32 tmp;
 	int ret;
 
 	ret = reset_control_deassert(ir->rst);
 	if (ret)
 		return ret;
 
-	ret = clk_set_rate(ir->clk, ir->base_clk_freq);
+	ret = clk_prepare_enable(ir->apb_clk);
 	if (ret) {
-		dev_err(dev, "set ir base clock failed!\n");
-		goto exit_reset_assert;
-	}
-	dev_dbg(dev, "set base clock frequency to %d Hz.\n", ir->base_clk_freq);
-
-	if (clk_prepare_enable(ir->apb_clk)) {
-		dev_err(dev, "try to enable apb_ir_clk failed\n");
-		ret = -EINVAL;
-		goto exit_reset_assert;
+		dev_err(dev, "failed to enable apb clk\n");
+		goto exit_assert_reset;
 	}
 
-	if (clk_prepare_enable(ir->clk)) {
-		dev_err(dev, "try to enable ir_clk failed\n");
-		ret = -EINVAL;
-		goto exit_apb_clk_disable;
+	ret = clk_prepare_enable(ir->clk);
+	if (ret) {
+		dev_err(dev, "failed to enable ir clk\n");
+		goto exit_disable_apb_clk;
 	}
 
 	/* Enable CIR Mode */
@@ -225,9 +217,9 @@ static int sunxi_ir_hw_init(struct device *dev)
 
 	return 0;
 
-exit_apb_clk_disable:
+exit_disable_apb_clk:
 	clk_disable_unprepare(ir->apb_clk);
-exit_reset_assert:
+exit_assert_reset:
 	reset_control_assert(ir->rst);
 
 	return ret;
@@ -254,6 +246,8 @@ static int __maybe_unused sunxi_ir_resume(struct device *dev)
 	return sunxi_ir_hw_init(dev);
 }
 
+static SIMPLE_DEV_PM_OPS(sunxi_ir_pm_ops, sunxi_ir_suspend, sunxi_ir_resume);
+
 static int sunxi_ir_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -261,7 +255,6 @@ static int sunxi_ir_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *dn = dev->of_node;
 	const struct sunxi_ir_quirks *quirks;
-	struct resource *res;
 	struct sunxi_ir *ir;
 	u32 b_clk_freq = SUNXI_IR_BASE_CLK;
 
@@ -291,7 +284,6 @@ static int sunxi_ir_probe(struct platform_device *pdev)
 
 	/* Base clock frequency (optional) */
 	of_property_read_u32(dn, "clock-frequency", &b_clk_freq);
-	ir->base_clk_freq = b_clk_freq;
 
 	/* Reset */
 	if (quirks->has_reset) {
@@ -300,9 +292,15 @@ static int sunxi_ir_probe(struct platform_device *pdev)
 			return PTR_ERR(ir->rst);
 	}
 
+	ret = clk_set_rate(ir->clk, b_clk_freq);
+	if (ret) {
+		dev_err(dev, "set ir base clock failed!\n");
+		return ret;
+	}
+	dev_dbg(dev, "set base clock frequency to %d Hz.\n", b_clk_freq);
+
 	/* IO */
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	ir->base = devm_ioremap_resource(dev, res);
+	ir->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(ir->base)) {
 		return PTR_ERR(ir->base);
 	}
@@ -370,8 +368,8 @@ static int sunxi_ir_remove(struct platform_device *pdev)
 {
 	struct sunxi_ir *ir = platform_get_drvdata(pdev);
 
-	sunxi_ir_hw_exit(&pdev->dev);
 	rc_unregister_device(ir->rc);
+	sunxi_ir_hw_exit(&pdev->dev);
 
 	return 0;
 }
@@ -412,8 +410,6 @@ static const struct of_device_id sunxi_ir_match[] = {
 	{}
 };
 MODULE_DEVICE_TABLE(of, sunxi_ir_match);
-
-static SIMPLE_DEV_PM_OPS(sunxi_ir_pm_ops, sunxi_ir_suspend, sunxi_ir_resume);
 
 static struct platform_driver sunxi_ir_driver = {
 	.probe          = sunxi_ir_probe,

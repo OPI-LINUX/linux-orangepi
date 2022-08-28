@@ -90,15 +90,18 @@
  * .data. We don't want to pull in .data..other sections, which Linux
  * has defined. Same for text and bss.
  *
+ * With LTO_CLANG, the linker also splits sections by default, so we need
+ * these macros to combine the sections during the final link.
+ *
  * RODATA_MAIN is not used because existing code already defines .rodata.x
  * sections to be brought in with rodata.
  */
-#ifdef CONFIG_LD_DEAD_CODE_DATA_ELIMINATION
+#if defined(CONFIG_LD_DEAD_CODE_DATA_ELIMINATION) || defined(CONFIG_LTO_CLANG)
 #define TEXT_MAIN .text .text.[0-9a-zA-Z_]*
-#define DATA_MAIN .data .data.[0-9a-zA-Z_]* .data..LPBX*
+#define DATA_MAIN .data .data.[0-9a-zA-Z_]* .data..L* .data..compoundliteral* .data.$__unnamed_* .data.$L*
 #define SDATA_MAIN .sdata .sdata.[0-9a-zA-Z_]*
-#define RODATA_MAIN .rodata .rodata.[0-9a-zA-Z_]*
-#define BSS_MAIN .bss .bss.[0-9a-zA-Z_]*
+#define RODATA_MAIN .rodata .rodata.[0-9a-zA-Z_]* .rodata..L*
+#define BSS_MAIN .bss .bss.[0-9a-zA-Z_]* .bss..compoundliteral*
 #define SBSS_MAIN .sbss .sbss.[0-9a-zA-Z_]*
 #else
 #define TEXT_MAIN .text
@@ -113,11 +116,7 @@
  * GCC 4.5 and later have a 32 bytes section alignment for structures.
  * Except GCC 4.9, that feels the need to align on 64 bytes.
  */
-#if __GNUC__ == 4 && __GNUC_MINOR__ == 9
-#define STRUCT_ALIGNMENT 64
-#else
 #define STRUCT_ALIGNMENT 32
-#endif
 #define STRUCT_ALIGN() . = ALIGN(STRUCT_ALIGNMENT)
 
 /*
@@ -127,13 +126,13 @@
  */
 #define SCHED_DATA				\
 	STRUCT_ALIGN();				\
-	__begin_sched_classes = .;		\
-	*(__idle_sched_class)			\
-	*(__fair_sched_class)			\
-	*(__rt_sched_class)			\
-	*(__dl_sched_class)			\
+	__sched_class_highest = .;		\
 	*(__stop_sched_class)			\
-	__end_sched_classes = .;
+	*(__dl_sched_class)			\
+	*(__rt_sched_class)			\
+	*(__fair_sched_class)			\
+	*(__idle_sched_class)			\
+	__sched_class_lowest = .;
 
 /* The actual configuration determine if the init/exit sections
  * are handled as text/data or they can be discarded (which
@@ -165,16 +164,22 @@
  * Need to also make ftrace_stub_graph point to ftrace_stub
  * so that the same stub location may have different protocols
  * and not mess up with C verifiers.
+ *
+ * ftrace_ops_list_func will be defined as arch_ftrace_ops_list_func
+ * as some archs will have a different prototype for that function
+ * but ftrace_ops_list_func() will have a single prototype.
  */
 #define MCOUNT_REC()	. = ALIGN(8);				\
 			__start_mcount_loc = .;			\
 			KEEP(*(__mcount_loc))			\
 			KEEP(*(__patchable_function_entries))	\
 			__stop_mcount_loc = .;			\
-			ftrace_stub_graph = ftrace_stub;
+			ftrace_stub_graph = ftrace_stub;	\
+			ftrace_ops_list_func = arch_ftrace_ops_list_func;
 #else
 # ifdef CONFIG_FUNCTION_TRACER
-#  define MCOUNT_REC()	ftrace_stub_graph = ftrace_stub;
+#  define MCOUNT_REC()	ftrace_stub_graph = ftrace_stub;	\
+			ftrace_ops_list_func = arch_ftrace_ops_list_func;
 # else
 #  define MCOUNT_REC()
 # endif
@@ -389,6 +394,7 @@
 	KEEP(*(__jump_table))						\
 	__stop___jump_table = .;
 
+#ifdef CONFIG_HAVE_STATIC_CALL_INLINE
 #define STATIC_CALL_DATA						\
 	. = ALIGN(8);							\
 	__start_static_call_sites = .;					\
@@ -397,6 +403,9 @@
 	__start_static_call_tramp_key = .;				\
 	KEEP(*(.static_call_tramp_key))					\
 	__stop_static_call_tramp_key = .;
+#else
+#define STATIC_CALL_DATA
+#endif
 
 /*
  * Allow architectures to handle ro_after_init data on their
@@ -461,14 +470,10 @@
 		__end_pci_fixups_suspend_late = .;			\
 	}								\
 									\
-	/* Built-in firmware blobs */					\
-	.builtin_fw : AT(ADDR(.builtin_fw) - LOAD_OFFSET) ALIGN(8) {	\
-		__start_builtin_fw = .;					\
-		KEEP(*(.builtin_fw))					\
-		__end_builtin_fw = .;					\
-	}								\
-									\
+	FW_LOADER_BUILT_IN_DATA						\
 	TRACEDATA							\
+									\
+	PRINTK_INDEX							\
 									\
 	/* Kernel symbol table: Normal symbols */			\
 	__ksymtab         : AT(ADDR(__ksymtab) - LOAD_OFFSET) {		\
@@ -484,27 +489,6 @@
 		__stop___ksymtab_gpl = .;				\
 	}								\
 									\
-	/* Kernel symbol table: Normal unused symbols */		\
-	__ksymtab_unused  : AT(ADDR(__ksymtab_unused) - LOAD_OFFSET) {	\
-		__start___ksymtab_unused = .;				\
-		KEEP(*(SORT(___ksymtab_unused+*)))			\
-		__stop___ksymtab_unused = .;				\
-	}								\
-									\
-	/* Kernel symbol table: GPL-only unused symbols */		\
-	__ksymtab_unused_gpl : AT(ADDR(__ksymtab_unused_gpl) - LOAD_OFFSET) { \
-		__start___ksymtab_unused_gpl = .;			\
-		KEEP(*(SORT(___ksymtab_unused_gpl+*)))			\
-		__stop___ksymtab_unused_gpl = .;			\
-	}								\
-									\
-	/* Kernel symbol table: GPL-future-only symbols */		\
-	__ksymtab_gpl_future : AT(ADDR(__ksymtab_gpl_future) - LOAD_OFFSET) { \
-		__start___ksymtab_gpl_future = .;			\
-		KEEP(*(SORT(___ksymtab_gpl_future+*)))			\
-		__stop___ksymtab_gpl_future = .;			\
-	}								\
-									\
 	/* Kernel symbol table: Normal symbols */			\
 	__kcrctab         : AT(ADDR(__kcrctab) - LOAD_OFFSET) {		\
 		__start___kcrctab = .;					\
@@ -517,27 +501,6 @@
 		__start___kcrctab_gpl = .;				\
 		KEEP(*(SORT(___kcrctab_gpl+*)))				\
 		__stop___kcrctab_gpl = .;				\
-	}								\
-									\
-	/* Kernel symbol table: Normal unused symbols */		\
-	__kcrctab_unused  : AT(ADDR(__kcrctab_unused) - LOAD_OFFSET) {	\
-		__start___kcrctab_unused = .;				\
-		KEEP(*(SORT(___kcrctab_unused+*)))			\
-		__stop___kcrctab_unused = .;				\
-	}								\
-									\
-	/* Kernel symbol table: GPL-only unused symbols */		\
-	__kcrctab_unused_gpl : AT(ADDR(__kcrctab_unused_gpl) - LOAD_OFFSET) { \
-		__start___kcrctab_unused_gpl = .;			\
-		KEEP(*(SORT(___kcrctab_unused_gpl+*)))			\
-		__stop___kcrctab_unused_gpl = .;			\
-	}								\
-									\
-	/* Kernel symbol table: GPL-future-only symbols */		\
-	__kcrctab_gpl_future : AT(ADDR(__kcrctab_gpl_future) - LOAD_OFFSET) { \
-		__start___kcrctab_gpl_future = .;			\
-		KEEP(*(SORT(___kcrctab_gpl_future+*)))			\
-		__stop___kcrctab_gpl_future = .;			\
 	}								\
 									\
 	/* Kernel symbol table: strings */				\
@@ -573,6 +536,22 @@
 	. = ALIGN((align));						\
 	__end_rodata = .;
 
+
+/*
+ * .text..L.cfi.jumptable.* contain Control-Flow Integrity (CFI)
+ * jump table entries.
+ */
+#ifdef CONFIG_CFI_CLANG
+#define TEXT_CFI_JT							\
+		. = ALIGN(PMD_SIZE);					\
+		__cfi_jt_start = .;					\
+		*(.text..L.cfi.jumptable .text..L.cfi.jumptable.*)	\
+		. = ALIGN(PMD_SIZE);					\
+		__cfi_jt_end = .;
+#else
+#define TEXT_CFI_JT
+#endif
+
 /*
  * Non-instrumentable text section
  */
@@ -600,6 +579,7 @@
 		*(.text..refcount)					\
 		*(.ref.text)						\
 		*(.text.asan.* .text.tsan.*)				\
+		TEXT_CFI_JT						\
 	MEM_KEEP(init.text*)						\
 	MEM_KEEP(exit.text*)						\
 
@@ -882,15 +862,28 @@
 		KEEP(*(.orc_unwind))					\
 		__stop_orc_unwind = .;					\
 	}								\
+	text_size = _etext - _stext;					\
 	. = ALIGN(4);							\
 	.orc_lookup : AT(ADDR(.orc_lookup) - LOAD_OFFSET) {		\
 		orc_lookup = .;						\
-		. += (((SIZEOF(.text) + LOOKUP_BLOCK_SIZE - 1) /	\
+		. += (((text_size + LOOKUP_BLOCK_SIZE - 1) /		\
 			LOOKUP_BLOCK_SIZE) + 1) * 4;			\
 		orc_lookup_end = .;					\
 	}
 #else
 #define ORC_UNWIND_TABLE
+#endif
+
+/* Built-in firmware blobs */
+#ifdef CONFIG_FW_LOADER
+#define FW_LOADER_BUILT_IN_DATA						\
+	.builtin_fw : AT(ADDR(.builtin_fw) - LOAD_OFFSET) ALIGN(8) {	\
+		__start_builtin_fw = .;					\
+		KEEP(*(.builtin_fw))					\
+		__end_builtin_fw = .;					\
+	}
+#else
+#define FW_LOADER_BUILT_IN_DATA
 #endif
 
 #ifdef CONFIG_PM_TRACE
@@ -903,6 +896,17 @@
 	}
 #else
 #define TRACEDATA
+#endif
+
+#ifdef CONFIG_PRINTK_INDEX
+#define PRINTK_INDEX							\
+	.printk_index : AT(ADDR(.printk_index) - LOAD_OFFSET) {		\
+		__start_printk_index = .;				\
+		*(.printk_index)					\
+		__stop_printk_index = .;				\
+	}
+#else
+#define PRINTK_INDEX
 #endif
 
 #define NOTES								\
@@ -1004,7 +1008,8 @@
  * keep any .init_array.* sections.
  * https://bugs.llvm.org/show_bug.cgi?id=46478
  */
-#if defined(CONFIG_GCOV_KERNEL) || defined(CONFIG_KASAN_GENERIC) || defined(CONFIG_KCSAN)
+#if defined(CONFIG_GCOV_KERNEL) || defined(CONFIG_KASAN_GENERIC) || defined(CONFIG_KCSAN) || \
+	defined(CONFIG_CFI_CLANG)
 # ifdef CONFIG_CONSTRUCTORS
 #  define SANITIZER_DISCARDS						\
 	*(.eh_frame)

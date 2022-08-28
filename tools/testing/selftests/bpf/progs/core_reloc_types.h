@@ -16,6 +16,23 @@ struct core_reloc_kernel_output {
 };
 
 /*
+ * MODULE
+ */
+
+struct core_reloc_module_output {
+	long long len;
+	long long off;
+	int read_ctx_sz;
+	bool read_ctx_exists;
+	bool buf_exists;
+	bool len_exists;
+	bool off_exists;
+	/* we have test_progs[-flavor], so cut flavor part */
+	char comm[sizeof("test_progs")];
+	int comm_len;
+};
+
+/*
  * FLAVORS
  */
 struct core_reloc_flavors {
@@ -768,12 +785,21 @@ struct core_reloc_bitfields___err_too_big_bitfield {
  */
 struct core_reloc_size_output {
 	int int_sz;
+	int int_off;
 	int struct_sz;
+	int struct_off;
 	int union_sz;
+	int union_off;
 	int arr_sz;
+	int arr_off;
 	int arr_elem_sz;
+	int arr_elem_off;
 	int ptr_sz;
+	int ptr_off;
 	int enum_sz;
+	int enum_off;
+	int float_sz;
+	int float_off;
 };
 
 struct core_reloc_size {
@@ -783,6 +809,7 @@ struct core_reloc_size {
 	int arr_field[4];
 	void *ptr_field;
 	enum { VALUE = 123 } enum_field;
+	float float_field;
 };
 
 struct core_reloc_size___diff_sz {
@@ -792,6 +819,17 @@ struct core_reloc_size___diff_sz {
 	char arr_field[10];
 	void *ptr_field;
 	enum { OTHER_VALUE = 0xFFFFFFFFFFFFFFFF } enum_field;
+	double float_field;
+};
+
+struct core_reloc_size___diff_offs {
+	float float_field;
+	enum { YET_OTHER_VALUE = 123 } enum_field;
+	void *ptr_field;
+	int arr_field[4];
+	union { int x; } union_field;
+	struct { int x; } struct_field;
+	int int_field;
 };
 
 /* Error case of two candidates with the fields (int_field) at the same
@@ -806,6 +844,7 @@ struct core_reloc_size___err_ambiguous1 {
 	int arr_field[4];
 	void *ptr_field;
 	enum { VALUE___1 = 123 } enum_field;
+	float float_field;
 };
 
 struct core_reloc_size___err_ambiguous2 {
@@ -817,6 +856,7 @@ struct core_reloc_size___err_ambiguous2 {
 	int arr_field[4];
 	void *ptr_field;
 	enum { VALUE___2 = 123 } enum_field;
+	float float_field;
 };
 
 /*

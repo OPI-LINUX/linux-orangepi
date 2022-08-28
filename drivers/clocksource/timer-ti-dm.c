@@ -128,7 +128,8 @@ static int omap_timer_context_notifier(struct notifier_block *nb,
 			break;
 		omap_timer_save_context(timer);
 		break;
-	case CPU_CLUSTER_PM_ENTER_FAILED:
+	case CPU_CLUSTER_PM_ENTER_FAILED:	/* No need to restore context */
+		break;
 	case CPU_CLUSTER_PM_EXIT:
 		if ((timer->capability & OMAP_TIMER_ALWON) ||
 		    !atomic_read(&timer->enabled))
@@ -432,7 +433,7 @@ int omap_dm_timer_get_irq(struct omap_dm_timer *timer)
 }
 
 #if defined(CONFIG_ARCH_OMAP1)
-#include <mach/hardware.h>
+#include <linux/soc/ti/omap1-io.h>
 
 static struct clk *omap_dm_timer_get_fclk(struct omap_dm_timer *timer)
 {
@@ -827,8 +828,7 @@ static int omap_dm_timer_probe(struct platform_device *pdev)
 		cpu_pm_register_notifier(&timer->nb);
 	}
 
-	if (pdata)
-		timer->errata = pdata->timer_errata;
+	timer->errata = pdata->timer_errata;
 
 	timer->pdev = pdev;
 

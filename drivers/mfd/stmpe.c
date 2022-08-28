@@ -337,6 +337,7 @@ static const struct mfd_cell stmpe_gpio_cell_noirq = {
  */
 
 static struct resource stmpe_keypad_resources[] = {
+	/* Start and end filled dynamically */
 	{
 		.name	= "KEYPAD",
 		.flags	= IORESOURCE_IRQ,
@@ -358,6 +359,7 @@ static const struct mfd_cell stmpe_keypad_cell = {
  * PWM (1601, 2401, 2403)
  */
 static struct resource stmpe_pwm_resources[] = {
+	/* Start and end filled dynamically */
 	{
 		.name	= "PWM0",
 		.flags	= IORESOURCE_IRQ,
@@ -446,6 +448,7 @@ static struct stmpe_variant_info stmpe801_noirq = {
  */
 
 static struct resource stmpe_ts_resources[] = {
+	/* Start and end filled dynamically */
 	{
 		.name	= "TOUCH_DET",
 		.flags	= IORESOURCE_IRQ,
@@ -468,6 +471,7 @@ static const struct mfd_cell stmpe_ts_cell = {
  */
 
 static struct resource stmpe_adc_resources[] = {
+	/* Start and end filled dynamically */
 	{
 		.name	= "STMPE_TEMP_SENS",
 		.flags	= IORESOURCE_IRQ,
@@ -1357,7 +1361,7 @@ static void stmpe_of_probe(struct stmpe_platform_data *pdata,
 
 	pdata->autosleep = (pdata->autosleep_timeout) ? true : false;
 
-	for_each_child_of_node(np, child) {
+	for_each_available_child_of_node(np, child) {
 		if (of_node_name_eq(child, "stmpe_gpio")) {
 			pdata->blocks |= STMPE_BLOCK_GPIO;
 		} else if (of_node_name_eq(child, "stmpe_keypad")) {
@@ -1492,7 +1496,7 @@ int stmpe_probe(struct stmpe_client_info *ci, enum stmpe_partnum partnum)
 	return ret;
 }
 
-int stmpe_remove(struct stmpe *stmpe)
+void stmpe_remove(struct stmpe *stmpe)
 {
 	if (!IS_ERR(stmpe->vio))
 		regulator_disable(stmpe->vio);
@@ -1502,8 +1506,6 @@ int stmpe_remove(struct stmpe *stmpe)
 	__stmpe_disable(stmpe, STMPE_BLOCK_ADC);
 
 	mfd_remove_devices(stmpe->dev);
-
-	return 0;
 }
 
 #ifdef CONFIG_PM

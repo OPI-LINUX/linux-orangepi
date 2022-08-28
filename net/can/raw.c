@@ -295,13 +295,13 @@ static void raw_notify(struct raw_sock *ro, unsigned long msg,
 
 		sk->sk_err = ENODEV;
 		if (!sock_flag(sk, SOCK_DEAD))
-			sk->sk_error_report(sk);
+			sk_error_report(sk);
 		break;
 
 	case NETDEV_DOWN:
 		sk->sk_err = ENETDOWN;
 		if (!sock_flag(sk, SOCK_DEAD))
-			sk->sk_error_report(sk);
+			sk_error_report(sk);
 		break;
 	}
 }
@@ -488,7 +488,7 @@ static int raw_bind(struct socket *sock, struct sockaddr *uaddr, int len)
 	if (notify_enetdown) {
 		sk->sk_err = ENETDOWN;
 		if (!sock_flag(sk, SOCK_DEAD))
-			sk->sk_error_report(sk);
+			sk_error_report(sk);
 	}
 
 	return err;
@@ -592,9 +592,7 @@ static int raw_setsockopt(struct socket *sock, int level, int optname,
 		ro->count  = count;
 
  out_fil:
-		if (dev)
-			dev_put(dev);
-
+		dev_put(dev);
 		release_sock(sk);
 		rtnl_unlock();
 
@@ -638,9 +636,7 @@ static int raw_setsockopt(struct socket *sock, int level, int optname,
 		ro->err_mask = err_mask;
 
  out_err:
-		if (dev)
-			dev_put(dev);
-
+		dev_put(dev);
 		release_sock(sk);
 		rtnl_unlock();
 
@@ -710,10 +706,18 @@ static int raw_getsockopt(struct socket *sock, int level, int optname,
 		if (ro->count > 0) {
 			int fsize = ro->count * sizeof(struct can_filter);
 
-			if (len > fsize)
-				len = fsize;
-			if (copy_to_user(optval, ro->filter, len))
-				err = -EFAULT;
+			/* user space buffer to small for filter list? */
+			if (len < fsize) {
+				/* return -ERANGE and needed space in optlen */
+				err = -ERANGE;
+				if (put_user(fsize, optlen))
+					err = -EFAULT;
+			} else {
+				if (len > fsize)
+					len = fsize;
+				if (copy_to_user(optval, ro->filter, len))
+					err = -EFAULT;
+			}
 		} else {
 			len = 0;
 		}
@@ -768,6 +772,7 @@ static int raw_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 {
 	struct sock *sk = sock->sk;
 	struct raw_sock *ro = raw_sk(sk);
+	struct sockcm_cookie sockc;
 	struct sk_buff *skb;
 	struct net_device *dev;
 	int ifindex;
@@ -813,11 +818,18 @@ static int raw_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 	if (err < 0)
 		goto free_skb;
 
-	skb_setup_tx_timestamp(skb, sk->sk_tsflags);
+	sockcm_init(&sockc, sk);
+	if (msg->msg_controllen) {
+		err = sock_cmsg_send(sk, msg, &sockc);
+		if (unlikely(err))
+			goto free_skb;
+	}
 
 	skb->dev = dev;
-	skb->sk = sk;
 	skb->priority = sk->sk_priority;
+	skb->tstamp = sockc.transmit_time;
+
+	skb_setup_tx_timestamp(skb, sockc.tsflags);
 
 	err = can_send(skb, ro->loopback);
 
@@ -842,16 +854,12 @@ static int raw_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 	struct sock *sk = sock->sk;
 	struct sk_buff *skb;
 	int err = 0;
-	int noblock;
-
-	noblock = flags & MSG_DONTWAIT;
-	flags &= ~MSG_DONTWAIT;
 
 	if (flags & MSG_ERRQUEUE)
 		return sock_recv_errqueue(sk, msg, size,
 					  SOL_CAN_RAW, SCM_CAN_RAW_ERRQUEUE);
 
-	skb = skb_recv_datagram(sk, flags, noblock, &err);
+	skb = skb_recv_datagram(sk, flags, &err);
 	if (!skb)
 		return err;
 
@@ -866,7 +874,7 @@ static int raw_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 		return err;
 	}
 
-	sock_recv_ts_and_drops(msg, sk, skb);
+	sock_recv_cmsgs(msg, sk, skb);
 
 	if (msg->msg_name) {
 		__sockaddr_check_size(RAW_MIN_NAMELEN);

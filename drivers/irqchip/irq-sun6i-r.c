@@ -83,7 +83,7 @@ static DECLARE_BITMAP(wake_mux_valid, SUN6I_NR_MUX_BITS);
 
 static void sun6i_r_intc_ack_nmi(void)
 {
-	writel(SUN6I_NMI_BIT, base + SUN6I_IRQ_PENDING(0));
+	writel_relaxed(SUN6I_NMI_BIT, base + SUN6I_IRQ_PENDING(0));
 }
 
 static void sun6i_r_intc_nmi_ack(struct irq_data *data)
@@ -98,8 +98,8 @@ static void sun6i_r_intc_nmi_eoi(struct irq_data *data)
 {
 	/* For oneshot IRQs, delay the ack until the IRQ is unmasked. */
 	if (data->chip_data == SUN6I_NMI_NEEDS_ACK && !irqd_irq_masked(data)) {
+		data->chip_data = NULL;
 		sun6i_r_intc_ack_nmi();
-		data->chip_data = 0;
 	}
 
 	irq_chip_eoi_parent(data);
@@ -108,8 +108,8 @@ static void sun6i_r_intc_nmi_eoi(struct irq_data *data)
 static void sun6i_r_intc_nmi_unmask(struct irq_data *data)
 {
 	if (data->chip_data == SUN6I_NMI_NEEDS_ACK) {
+		data->chip_data = NULL;
 		sun6i_r_intc_ack_nmi();
-		data->chip_data = 0;
 	}
 
 	irq_chip_unmask_parent(data);
@@ -249,11 +249,13 @@ static int sun6i_r_intc_domain_alloc(struct irq_domain *domain,
 	for (i = 0; i < nr_irqs; ++i, ++hwirq, ++virq) {
 		if (hwirq == nmi_hwirq) {
 			irq_domain_set_hwirq_and_chip(domain, virq, hwirq,
-						      &sun6i_r_intc_nmi_chip, 0);
+						      &sun6i_r_intc_nmi_chip,
+						      NULL);
 			irq_set_handler(virq, handle_fasteoi_ack_irq);
 		} else {
 			irq_domain_set_hwirq_and_chip(domain, virq, hwirq,
-						      &sun6i_r_intc_wakeup_chip, 0);
+						      &sun6i_r_intc_wakeup_chip,
+						      NULL);
 		}
 	}
 

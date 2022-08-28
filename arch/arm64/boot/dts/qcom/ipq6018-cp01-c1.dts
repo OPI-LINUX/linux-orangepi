@@ -39,7 +39,7 @@
 	cs-select = <0>;
 	status = "okay";
 
-	m25p80@0 {
+	flash@0 {
 		#address-cells = <1>;
 		#size-cells = <1>;
 		reg = <0>;
@@ -61,4 +61,28 @@
 		drive-strength = <8>;
 		bias-pull-down;
 	};
+};
+
+&qpic_bam {
+	status = "okay";
+};
+
+&qpic_nand {
+	status = "okay";
+
+	nand@0 {
+		reg = <0>;
+
+		nand-ecc-strength = <4>;
+		nand-ecc-step-size = <512>;
+		nand-bus-width = <8>;
+	};
+};
+
+&qusb_phy_1 {
+	status = "ok";
+};
+
+&usb2 {
+	status = "ok";
 };

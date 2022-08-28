@@ -401,8 +401,8 @@ static int es8316_set_dai_fmt(struct snd_soc_dai *codec_dai,
 	u8 clksw;
 	u8 mask;
 
-	if ((fmt & SND_SOC_DAIFMT_MASTER_MASK) != SND_SOC_DAIFMT_CBS_CFS) {
-		dev_err(component->dev, "Codec driver only supports slave mode\n");
+	if ((fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) != SND_SOC_DAIFMT_CBC_CFC) {
+		dev_err(component->dev, "Codec driver only supports consumer mode\n");
 		return -EINVAL;
 	}
 
@@ -538,7 +538,7 @@ static struct snd_soc_dai_driver es8316_dai = {
 		.formats = ES8316_FORMATS,
 	},
 	.ops = &es8316_ops,
-	.symmetric_rates = 1,
+	.symmetric_rate = 1,
 };
 
 static void es8316_enable_micbias_for_mic_gnd_short_detect(
@@ -676,6 +676,9 @@ static void es8316_disable_jack_detect(struct snd_soc_component *component)
 {
 	struct es8316_priv *es8316 = snd_soc_component_get_drvdata(component);
 
+	if (!es8316->jack)
+		return; /* Already disabled (or never enabled) */
+
 	disable_irq(es8316->irq);
 
 	mutex_lock(&es8316->lock);
@@ -786,8 +789,7 @@ static const struct regmap_config es8316_regmap = {
 	.cache_type = REGCACHE_RBTREE,
 };
 
-static int es8316_i2c_probe(struct i2c_client *i2c_client,
-			    const struct i2c_device_id *id)
+static int es8316_i2c_probe(struct i2c_client *i2c_client)
 {
 	struct device *dev = &i2c_client->dev;
 	struct es8316_priv *es8316;
@@ -808,12 +810,9 @@ static int es8316_i2c_probe(struct i2c_client *i2c_client,
 	mutex_init(&es8316->lock);
 
 	ret = devm_request_threaded_irq(dev, es8316->irq, NULL, es8316_irq,
-					IRQF_TRIGGER_HIGH | IRQF_ONESHOT,
+					IRQF_TRIGGER_HIGH | IRQF_ONESHOT | IRQF_NO_AUTOEN,
 					"es8316", es8316);
-	if (ret == 0) {
-		/* Gets re-enabled by es8316_set_jack() */
-		disable_irq(es8316->irq);
-	} else {
+	if (ret) {
 		dev_warn(dev, "Failed to get IRQ %d: %d\n", es8316->irq, ret);
 		es8316->irq = -ENXIO;
 	}
@@ -829,15 +828,18 @@ static const struct i2c_device_id es8316_i2c_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, es8316_i2c_id);
 
+#ifdef CONFIG_OF
 static const struct of_device_id es8316_of_match[] = {
 	{ .compatible = "everest,es8316", },
 	{},
 };
 MODULE_DEVICE_TABLE(of, es8316_of_match);
+#endif
 
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id es8316_acpi_match[] = {
 	{"ESSX8316", 0},
+	{"ESSX8336", 0},
 	{},
 };
 MODULE_DEVICE_TABLE(acpi, es8316_acpi_match);
@@ -849,7 +851,7 @@ static struct i2c_driver es8316_i2c_driver = {
 		.acpi_match_table	= ACPI_PTR(es8316_acpi_match),
 		.of_match_table		= of_match_ptr(es8316_of_match),
 	},
-	.probe		= es8316_i2c_probe,
+	.probe_new	= es8316_i2c_probe,
 	.id_table	= es8316_i2c_id,
 };
 module_i2c_driver(es8316_i2c_driver);

@@ -533,8 +533,10 @@ irqreturn_t ath_isr(int irq, void *dev)
 	ath9k_debug_sync_cause(sc, sync_cause);
 	status &= ah->imask;	/* discard unasked-for bits */
 
-	if (test_bit(ATH_OP_HW_RESET, &common->op_flags))
+	if (test_bit(ATH_OP_HW_RESET, &common->op_flags)) {
+		ath9k_hw_kill_interrupts(sc->sc_ah);
 		return IRQ_HANDLED;
+	}
 
 	/*
 	 * If there are no status bits set, then this interrupt was not
@@ -837,7 +839,7 @@ static bool ath9k_txq_list_has_key(struct list_head *txq_list, u32 keyix)
 			continue;
 
 		txinfo = IEEE80211_SKB_CB(bf->bf_mpdu);
-		fi = (struct ath_frame_info *)&txinfo->rate_driver_data[0];
+		fi = (struct ath_frame_info *)&txinfo->status.status_driver_data[0];
 		if (fi->keyix == keyix)
 			return true;
 	}
@@ -1054,9 +1056,6 @@ static void ath9k_vif_iter(struct ath9k_vif_iter_data *iter_data,
 		if (vif->bss_conf.enable_beacon)
 			ath9k_vif_iter_set_beacon(iter_data, vif);
 		break;
-	case NL80211_IFTYPE_WDS:
-		iter_data->nwds++;
-		break;
 	default:
 		break;
 	}
@@ -1217,8 +1216,6 @@ void ath9k_calculate_summary_state(struct ath_softc *sc,
 			ah->opmode = NL80211_IFTYPE_MESH_POINT;
 		else if (iter_data.nocbs)
 			ah->opmode = NL80211_IFTYPE_OCB;
-		else if (iter_data.nwds)
-			ah->opmode = NL80211_IFTYPE_AP;
 		else if (iter_data.nadhocs)
 			ah->opmode = NL80211_IFTYPE_ADHOC;
 		else
@@ -2051,7 +2048,7 @@ static int ath9k_ampdu_action(struct ieee80211_hw *hw,
 	case IEEE80211_AMPDU_TX_OPERATIONAL:
 		atid = ath_node_to_tid(an, tid);
 		atid->baw_size = IEEE80211_MIN_AMPDU_BUF <<
-			        sta->ht_cap.ampdu_factor;
+					sta->deflink.ht_cap.ampdu_factor;
 		break;
 	default:
 		ath_err(ath9k_hw_common(sc->sc_ah), "Unknown AMPDU action\n");
@@ -2659,7 +2656,7 @@ static void ath9k_unassign_vif_chanctx(struct ieee80211_hw *hw,
 
 static void ath9k_mgd_prepare_tx(struct ieee80211_hw *hw,
 				 struct ieee80211_vif *vif,
-				 u16 duration)
+				 struct ieee80211_prep_tx_info *info)
 {
 	struct ath_softc *sc = hw->priv;
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);

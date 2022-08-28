@@ -1527,8 +1527,6 @@ static int pl330_submit_req(struct pl330_thread *thrd,
 
 	/* First dry run to check if req is acceptable */
 	ret = _setup_req(pl330, 1, thrd, idx, &xs);
-	if (ret < 0)
-		goto xfer_exit;
 
 	if (ret > pl330->mcbufsz / 2) {
 		dev_info(pl330->ddma.dev, "%s:%d Try increasing mcbufsz (%i/%i)\n",
@@ -2591,7 +2589,7 @@ static struct dma_pl330_desc *pl330_get_desc(struct dma_pl330_chan *pch)
 
 	/* If the DMAC pool is empty, alloc new */
 	if (!desc) {
-		DEFINE_SPINLOCK(lock);
+		static DEFINE_SPINLOCK(lock);
 		LIST_HEAD(pool);
 
 		if (!add_desc(&pool, &lock, GFP_ATOMIC, 1))
@@ -2970,7 +2968,7 @@ static int __maybe_unused pl330_suspend(struct device *dev)
 	struct amba_device *pcdev = to_amba_device(dev);
 
 	pm_runtime_force_suspend(dev);
-	amba_pclk_unprepare(pcdev);
+	clk_unprepare(pcdev->pclk);
 
 	return 0;
 }
@@ -2980,7 +2978,7 @@ static int __maybe_unused pl330_resume(struct device *dev)
 	struct amba_device *pcdev = to_amba_device(dev);
 	int ret;
 
-	ret = amba_pclk_prepare(pcdev);
+	ret = clk_prepare(pcdev->pclk);
 	if (ret)
 		return ret;
 
@@ -3199,7 +3197,7 @@ probe_err2:
 	return ret;
 }
 
-static int pl330_remove(struct amba_device *adev)
+static void pl330_remove(struct amba_device *adev)
 {
 	struct pl330_dmac *pl330 = amba_get_drvdata(adev);
 	struct dma_pl330_chan *pch, *_p;
@@ -3239,7 +3237,6 @@ static int pl330_remove(struct amba_device *adev)
 
 	if (pl330->rstc)
 		reset_control_assert(pl330->rstc);
-	return 0;
 }
 
 static const struct amba_id pl330_ids[] = {

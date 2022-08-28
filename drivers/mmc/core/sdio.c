@@ -7,6 +7,7 @@
 
 #include <linux/err.h>
 #include <linux/pm_runtime.h>
+#include <linux/sysfs.h>
 
 #include <linux/mmc/host.h>
 #include <linux/mmc/card.h>
@@ -40,9 +41,9 @@ static ssize_t info##num##_show(struct device *dev, struct device_attribute *att
 												\
 	if (num > card->num_info)								\
 		return -ENODATA;								\
-	if (!card->info[num-1][0])								\
+	if (!card->info[num - 1][0])								\
 		return 0;									\
-	return sprintf(buf, "%s\n", card->info[num-1]);						\
+	return sysfs_emit(buf, "%s\n", card->info[num - 1]);					\
 }												\
 static DEVICE_ATTR_RO(info##num)
 
@@ -707,6 +708,9 @@ try_again:
 	 */
 	if (host->ops->init_card)
 		host->ops->init_card(host, card);
+	mmc_fixup_device(card, sdio_card_init_methods);
+
+	card->ocr = ocr_card;
 
 	/*
 	 * If the host and card support UHS-I mode request the card
@@ -751,7 +755,7 @@ try_again:
 	 * Read CSD, before selecting the card
 	 */
 	if (!oldcard && card->type == MMC_TYPE_SD_COMBO) {
-		err = mmc_sd_get_csd(host, card);
+		err = mmc_sd_get_csd(card);
 		if (err)
 			goto remove;
 
@@ -820,7 +824,7 @@ try_again:
 			goto mismatch;
 		}
 	}
-	card->ocr = ocr_card;
+
 	mmc_fixup_device(card, sdio_fixup_methods);
 
 	if (card->type == MMC_TYPE_SD_COMBO) {
@@ -937,11 +941,9 @@ static void mmc_sdio_detect(struct mmc_host *host)
 
 	/* Make sure card is powered before detecting it */
 	if (host->caps & MMC_CAP_POWER_OFF_CARD) {
-		err = pm_runtime_get_sync(&host->card->dev);
-		if (err < 0) {
-			pm_runtime_put_noidle(&host->card->dev);
+		err = pm_runtime_resume_and_get(&host->card->dev);
+		if (err < 0)
 			goto out;
-		}
 	}
 
 	mmc_claim_host(host);

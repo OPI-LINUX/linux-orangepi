@@ -52,6 +52,7 @@ enum {
 	MLXSW_TRAP_ID_RTR_INGRESS1 = 0x71,
 	MLXSW_TRAP_ID_IPV6_PIM = 0x79,
 	MLXSW_TRAP_ID_IPV6_VRRP = 0x7A,
+	MLXSW_TRAP_ID_RTR_EGRESS0 = 0x80,
 	MLXSW_TRAP_ID_IPV4_BGP = 0x88,
 	MLXSW_TRAP_ID_IPV6_BGP = 0x89,
 	MLXSW_TRAP_ID_L3_IPV6_ROUTER_SOLICITATION = 0x8A,
@@ -132,6 +133,12 @@ enum mlxsw_event_trap_id {
 	MLXSW_TRAP_ID_PTP_ING_FIFO = 0x2D,
 	/* PTP Egress FIFO has a new entry */
 	MLXSW_TRAP_ID_PTP_EGR_FIFO = 0x2E,
+	/* Downstream Device Status Change */
+	MLXSW_TRAP_ID_DSDSC = 0x321,
+	/* Binary Code Transfer Operation Executed Event */
+	MLXSW_TRAP_ID_BCTOE = 0x322,
+	/* Port mapping change */
+	MLXSW_TRAP_ID_PMLPE = 0x32E,
 };
 
 #endif /* _MLXSW_TRAP_H */

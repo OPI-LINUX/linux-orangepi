@@ -12,8 +12,6 @@
 #include <asm/barrier.h>
 #include <asm/asm-const.h>
 
-#define FIRST_USER_ADDRESS	0UL
-
 /*
  * Size of EA range mapped by our pagetables.
  */
@@ -120,11 +118,6 @@ static inline pte_t pte_wrprotect(pte_t pte)
 	return __pte(pte_val(pte) & ~_PAGE_RW);
 }
 
-static inline pte_t pte_mkexec(pte_t pte)
-{
-	return __pte(pte_val(pte) | _PAGE_EXEC);
-}
-
 #define PMD_BAD_BITS		(PTE_TABLE_SIZE-1)
 #define PUD_BAD_BITS		(PMD_TABLE_SIZE-1)
 
@@ -149,6 +142,7 @@ static inline pte_t pmd_pte(pmd_t pmd)
 #define	pmd_present(pmd)	(!pmd_none(pmd))
 #define pmd_page_vaddr(pmd)	(pmd_val(pmd) & ~PMD_MASKED_BITS)
 extern struct page *pmd_page(pmd_t pmd);
+#define pmd_pfn(pmd)		(page_to_pfn(pmd_page(pmd)))
 
 static inline void pud_set(pud_t *pudp, unsigned long val)
 {
@@ -164,7 +158,11 @@ static inline void pud_clear(pud_t *pudp)
 #define	pud_bad(pud)		(!is_kernel_addr(pud_val(pud)) \
 				 || (pud_val(pud) & PUD_BAD_BITS))
 #define pud_present(pud)	(pud_val(pud) != 0)
-#define pud_page_vaddr(pud)	(pud_val(pud) & ~PUD_MASKED_BITS)
+
+static inline pmd_t *pud_pgtable(pud_t pud)
+{
+	return (pmd_t *)(pud_val(pud) & ~PUD_MASKED_BITS);
+}
 
 extern struct page *pud_page(pud_t pud);
 
@@ -284,9 +282,6 @@ static inline void __ptep_set_access_flags(struct vm_area_struct *vma,
 	flush_tlb_page(vma, address);
 }
 
-#define __HAVE_ARCH_PTE_SAME
-#define pte_same(A,B)	((pte_val(A) ^ pte_val(B)) == 0)
-
 #define pte_ERROR(e) \
 	pr_err("%s:%d: bad pte %08lx.\n", __FILE__, __LINE__, pte_val(e))
 #define pmd_ERROR(e) \
@@ -311,11 +306,18 @@ static inline void __ptep_set_access_flags(struct vm_area_struct *vma,
 #define __swp_entry_to_pte(x)		__pte((x).val)
 
 int map_kernel_page(unsigned long ea, unsigned long pa, pgprot_t prot);
+void unmap_kernel_page(unsigned long va);
 extern int __meminit vmemmap_create_mapping(unsigned long start,
 					    unsigned long page_size,
 					    unsigned long phys);
 extern void vmemmap_remove_mapping(unsigned long start,
 				   unsigned long page_size);
+void __patch_exception(int exc, unsigned long addr);
+#define patch_exception(exc, name) do { \
+	extern unsigned int name; \
+	__patch_exception((exc), (unsigned long)&name); \
+} while (0)
+
 #endif /* __ASSEMBLY__ */
 
 #endif /* _ASM_POWERPC_NOHASH_64_PGTABLE_H */

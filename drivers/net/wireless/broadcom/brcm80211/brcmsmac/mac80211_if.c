@@ -87,7 +87,6 @@ static int n_adapters_found;
 
 MODULE_AUTHOR("Broadcom Corporation");
 MODULE_DESCRIPTION("Broadcom 802.11n wireless LAN driver.");
-MODULE_SUPPORTED_DEVICE("Broadcom 802.11n WLAN cards");
 MODULE_LICENSE("Dual BSD/GPL");
 /* This needs to be adjusted when brcms_firmwares changes */
 MODULE_FIRMWARE("brcm/bcm43xx-0.fw");
@@ -869,7 +868,7 @@ brcms_ops_ampdu_action(struct ieee80211_hw *hw,
 		spin_lock_bh(&wl->lock);
 		brcms_c_ampdu_tx_operational(wl->wlc, tid, buf_size,
 			(1 << (IEEE80211_HT_MAX_AMPDU_FACTOR +
-			 sta->ht_cap.ampdu_factor)) - 1);
+			 sta->deflink.ht_cap.ampdu_factor)) - 1);
 		spin_unlock_bh(&wl->lock);
 		/* Power save wakeup */
 		break;

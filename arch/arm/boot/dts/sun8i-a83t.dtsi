@@ -200,7 +200,7 @@
 		status = "disabled";
 	};
 
-	cpu0_opp_table: opp_table0 {
+	cpu0_opp_table: opp-table-cluster0 {
 		compatible = "operating-points-v2";
 		opp-shared;
 
@@ -253,7 +253,7 @@
 		};
 	};
 
-	cpu1_opp_table: opp_table1 {
+	cpu1_opp_table: opp-table-cluster1 {
 		compatible = "operating-points-v2";
 		opp-shared;
 
@@ -702,7 +702,6 @@
 			reg = <0x01c20000 0x400>;
 			clocks = <&osc24M>, <&osc16Md512>;
 			clock-names = "hosc", "losc";
-			protected-clocks = <CLK_BUS_MSGBOX>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
 		};
@@ -1063,9 +1062,6 @@
 			clock-names = "bus", "mod", "ram";
 			resets = <&ccu RST_BUS_CSI>;
 			status = "disabled";
-
-			csi_in: port {
-			};
 		};
 
 		hdmi: hdmi@1ee0000 {
@@ -1127,7 +1123,6 @@
 			clocks = <&osc24M>, <&osc16Md512>, <&osc16M>,
 				 <&ccu CLK_PLL_PERIPH>;
 			clock-names = "hosc", "losc", "iosc", "pll-periph";
-			protected-clocks = <CLK_APB0_TWD>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
 		};

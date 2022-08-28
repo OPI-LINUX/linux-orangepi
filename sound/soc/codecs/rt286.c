@@ -255,11 +255,16 @@ static int rt286_jack_detect(struct rt286_priv *rt286, bool *hp, bool *mic)
 				msleep(300);
 				regmap_read(rt286->regmap,
 					RT286_CBJ_CTRL2, &val);
-				if (0x0070 == (val & 0x0070))
+				if (0x0070 == (val & 0x0070)) {
 					*mic = true;
-				else
+				} else {
 					*mic = false;
+					regmap_update_bits(rt286->regmap,
+						RT286_CBJ_CTRL1,
+						0xfcc0, 0xc400);
+				}
 			}
+
 			regmap_update_bits(rt286->regmap,
 				RT286_DC_GAIN, 0x200, 0x0);
 
@@ -720,7 +725,6 @@ static int rt286_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	d_len_code = 0;
 	switch (params_width(params)) {
 	/* bit 6:4 Bits per Sample */
 	case 16:
@@ -1020,7 +1024,7 @@ static struct snd_soc_dai_driver rt286_dai[] = {
 			.formats = RT286_FORMATS,
 		},
 		.ops = &rt286_aif_dai_ops,
-		.symmetric_rates = 1,
+		.symmetric_rate = 1,
 	},
 	{
 		.name = "rt286-aif2",
@@ -1040,7 +1044,7 @@ static struct snd_soc_dai_driver rt286_dai[] = {
 			.formats = RT286_FORMATS,
 		},
 		.ops = &rt286_aif_dai_ops,
-		.symmetric_rates = 1,
+		.symmetric_rate = 1,
 	},
 
 };
@@ -1130,8 +1134,7 @@ static const struct dmi_system_id dmi_dell[] = {
 	{ }
 };
 
-static int rt286_i2c_probe(struct i2c_client *i2c,
-			   const struct i2c_device_id *id)
+static int rt286_i2c_probe(struct i2c_client *i2c)
 {
 	struct rt286_platform_data *pdata = dev_get_platdata(&i2c->dev);
 	struct rt286_priv *rt286;
@@ -1207,7 +1210,7 @@ static int rt286_i2c_probe(struct i2c_client *i2c,
 	mdelay(10);
 
 	if (!rt286->pdata.gpio2_en)
-		regmap_write(rt286->regmap, RT286_SET_DMIC2_DEFAULT, 0x4000);
+		regmap_write(rt286->regmap, RT286_SET_DMIC2_DEFAULT, 0x40);
 	else
 		regmap_write(rt286->regmap, RT286_SET_DMIC2_DEFAULT, 0);
 
@@ -1267,7 +1270,7 @@ static struct i2c_driver rt286_i2c_driver = {
 		   .name = "rt286",
 		   .acpi_match_table = ACPI_PTR(rt286_acpi_match),
 		   },
-	.probe = rt286_i2c_probe,
+	.probe_new = rt286_i2c_probe,
 	.remove = rt286_i2c_remove,
 	.id_table = rt286_i2c_id,
 };

@@ -10,7 +10,7 @@
 #include <asm/export.h>
 
 	/* rdi:	arg1 ... normal C conventions. rax is saved/restored. */
-	.macro THUNK name, func, put_ret_addr_in_rdi=0
+	.macro THUNK name, func
 SYM_FUNC_START_NOALIGN(\name)
 	pushq %rbp
 	movq %rsp, %rbp
@@ -24,11 +24,6 @@ SYM_FUNC_START_NOALIGN(\name)
 	pushq %r9
 	pushq %r10
 	pushq %r11
-
-	.if \put_ret_addr_in_rdi
-	/* 8(%rbp) is return addr on stack */
-	movq 8(%rbp), %rdi
-	.endif
 
 	call \func
 	jmp  __thunk_restore
@@ -55,7 +50,7 @@ SYM_CODE_START_LOCAL_NOALIGN(__thunk_restore)
 	popq %rsi
 	popq %rdi
 	popq %rbp
-	ret
+	RET
 	_ASM_NOKPROBE(__thunk_restore)
 SYM_CODE_END(__thunk_restore)
 #endif

@@ -62,8 +62,6 @@
 #include <trace/events/skb.h>
 #include <net/busy_poll.h>
 
-#include "datagram.h"
-
 /*
  *	Is a socket 'connection oriented' ?
  */
@@ -310,12 +308,11 @@ struct sk_buff *__skb_recv_datagram(struct sock *sk,
 EXPORT_SYMBOL(__skb_recv_datagram);
 
 struct sk_buff *skb_recv_datagram(struct sock *sk, unsigned int flags,
-				  int noblock, int *err)
+				  int *err)
 {
 	int off = 0;
 
-	return __skb_recv_datagram(sk, &sk->sk_receive_queue,
-				   flags | (noblock ? MSG_DONTWAIT : 0),
+	return __skb_recv_datagram(sk, &sk->sk_receive_queue, flags,
 				   &off, err);
 }
 EXPORT_SYMBOL(skb_recv_datagram);
@@ -646,7 +643,8 @@ int __zerocopy_sg_from_iter(struct sock *sk, struct sk_buff *skb,
 		skb->truesize += truesize;
 		if (sk && sk->sk_type == SOCK_STREAM) {
 			sk_wmem_queued_add(sk, truesize);
-			sk_mem_charge(sk, truesize);
+			if (!skb_zcopy_pure(skb))
+				sk_mem_charge(sk, truesize);
 		} else {
 			refcount_add(truesize, &skb->sk->sk_wmem_alloc);
 		}
@@ -709,7 +707,7 @@ int zerocopy_sg_from_iter(struct sk_buff *skb, struct iov_iter *from)
 EXPORT_SYMBOL(zerocopy_sg_from_iter);
 
 /**
- *	skb_copy_and_csum_datagram_iter - Copy datagram to an iovec iterator
+ *	skb_copy_and_csum_datagram - Copy datagram to an iovec iterator
  *          and update a checksum.
  *	@skb: buffer to copy
  *	@offset: offset in the buffer to start copying from

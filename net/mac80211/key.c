@@ -476,7 +476,7 @@ static int ieee80211_key_replace(struct ieee80211_sub_if_data *sdata,
 			    !(new->conf.flags & IEEE80211_KEY_FLAG_NO_AUTO_TX))
 				_ieee80211_set_tx_key(new, true);
 		} else {
-			rcu_assign_pointer(sta->gtk[idx], new);
+			rcu_assign_pointer(sta->deflink.gtk[idx], new);
 		}
 		/* Only needed for transition from no key -> key.
 		 * Still triggers unnecessary when using Extended Key ID
@@ -826,7 +826,8 @@ int ieee80211_key_link(struct ieee80211_key *key,
 		    (old_key && old_key->conf.cipher != key->conf.cipher))
 			goto out;
 	} else if (sta) {
-		old_key = key_mtx_dereference(sdata->local, sta->gtk[idx]);
+		old_key = key_mtx_dereference(sdata->local,
+					      sta->deflink.gtk[idx]);
 	} else {
 		old_key = key_mtx_dereference(sdata->local, sdata->keys[idx]);
 	}
@@ -894,7 +895,7 @@ void ieee80211_reenable_keys(struct ieee80211_sub_if_data *sdata)
 	struct ieee80211_key *key;
 	struct ieee80211_sub_if_data *vlan;
 
-	ASSERT_RTNL();
+	lockdep_assert_wiphy(sdata->local->hw.wiphy);
 
 	mutex_lock(&sdata->local->key_mtx);
 
@@ -931,7 +932,7 @@ void ieee80211_iter_keys(struct ieee80211_hw *hw,
 	struct ieee80211_key *key, *tmp;
 	struct ieee80211_sub_if_data *sdata;
 
-	ASSERT_RTNL();
+	lockdep_assert_wiphy(hw->wiphy);
 
 	mutex_lock(&local->key_mtx);
 	if (vif) {
@@ -1076,8 +1077,8 @@ void ieee80211_free_sta_keys(struct ieee80211_local *local,
 	int i;
 
 	mutex_lock(&local->key_mtx);
-	for (i = 0; i < ARRAY_SIZE(sta->gtk); i++) {
-		key = key_mtx_dereference(local, sta->gtk[i]);
+	for (i = 0; i < ARRAY_SIZE(sta->deflink.gtk); i++) {
+		key = key_mtx_dereference(local, sta->deflink.gtk[i]);
 		if (!key)
 			continue;
 		ieee80211_key_replace(key->sdata, key->sta,
@@ -1307,3 +1308,52 @@ ieee80211_gtk_rekey_add(struct ieee80211_vif *vif,
 	return &key->conf;
 }
 EXPORT_SYMBOL_GPL(ieee80211_gtk_rekey_add);
+
+void ieee80211_key_mic_failure(struct ieee80211_key_conf *keyconf)
+{
+	struct ieee80211_key *key;
+
+	key = container_of(keyconf, struct ieee80211_key, conf);
+
+	switch (key->conf.cipher) {
+	case WLAN_CIPHER_SUITE_AES_CMAC:
+	case WLAN_CIPHER_SUITE_BIP_CMAC_256:
+		key->u.aes_cmac.icverrors++;
+		break;
+	case WLAN_CIPHER_SUITE_BIP_GMAC_128:
+	case WLAN_CIPHER_SUITE_BIP_GMAC_256:
+		key->u.aes_gmac.icverrors++;
+		break;
+	default:
+		/* ignore the others for now, we don't keep counters now */
+		break;
+	}
+}
+EXPORT_SYMBOL_GPL(ieee80211_key_mic_failure);
+
+void ieee80211_key_replay(struct ieee80211_key_conf *keyconf)
+{
+	struct ieee80211_key *key;
+
+	key = container_of(keyconf, struct ieee80211_key, conf);
+
+	switch (key->conf.cipher) {
+	case WLAN_CIPHER_SUITE_CCMP:
+	case WLAN_CIPHER_SUITE_CCMP_256:
+		key->u.ccmp.replays++;
+		break;
+	case WLAN_CIPHER_SUITE_AES_CMAC:
+	case WLAN_CIPHER_SUITE_BIP_CMAC_256:
+		key->u.aes_cmac.replays++;
+		break;
+	case WLAN_CIPHER_SUITE_BIP_GMAC_128:
+	case WLAN_CIPHER_SUITE_BIP_GMAC_256:
+		key->u.aes_gmac.replays++;
+		break;
+	case WLAN_CIPHER_SUITE_GCMP:
+	case WLAN_CIPHER_SUITE_GCMP_256:
+		key->u.gcmp.replays++;
+		break;
+	}
+}
+EXPORT_SYMBOL_GPL(ieee80211_key_replay);

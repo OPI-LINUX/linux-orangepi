@@ -158,8 +158,17 @@
 #define HDMI_FC_SPDDEVICEINF                    0x1062
 #define HDMI_FC_AUDSCONF                        0x1063
 #define HDMI_FC_AUDSSTAT                        0x1064
-#define HDMI_FC_AUDSCHNLS7                      0x106e
-#define HDMI_FC_AUDSCHNLS8                      0x106f
+#define HDMI_FC_AUDSV                           0x1065
+#define HDMI_FC_AUDSU                           0x1066
+#define HDMI_FC_AUDSCHNLS0                       0x1067
+#define HDMI_FC_AUDSCHNLS1                       0x1068
+#define HDMI_FC_AUDSCHNLS2                       0x1069
+#define HDMI_FC_AUDSCHNLS3                       0x106A
+#define HDMI_FC_AUDSCHNLS4                       0x106B
+#define HDMI_FC_AUDSCHNLS5                       0x106C
+#define HDMI_FC_AUDSCHNLS6                       0x106D
+#define HDMI_FC_AUDSCHNLS7                       0x106E
+#define HDMI_FC_AUDSCHNLS8                       0x106F
 #define HDMI_FC_DATACH0FILL                     0x1070
 #define HDMI_FC_DATACH1FILL                     0x1071
 #define HDMI_FC_DATACH2FILL                     0x1072
@@ -842,6 +851,10 @@ enum {
 	HDMI_FC_AVICONF3_QUANT_RANGE_LIMITED = 0x00,
 	HDMI_FC_AVICONF3_QUANT_RANGE_FULL = 0x04,
 
+/* HDMI_FC_GCP */
+	HDMI_FC_GCP_SET_AVMUTE = 0x2,
+	HDMI_FC_GCP_CLEAR_AVMUTE = 0x1,
+
 /* FC_DBGFORCE field values */
 	HDMI_FC_DBGFORCE_FORCEAUDIO = 0x10,
 	HDMI_FC_DBGFORCE_FORCEVIDEO = 0x1,
@@ -849,6 +862,9 @@ enum {
 /* FC_DATAUTO0 field values */
 	HDMI_FC_DATAUTO0_VSD_MASK = 0x08,
 	HDMI_FC_DATAUTO0_VSD_OFFSET = 3,
+
+/* FC_DATAUTO3 field values */
+	HDMI_FC_DATAUTO3_GCP_AUTO = 0x04,
 
 /* PHY_CONF0 field values */
 	HDMI_PHY_CONF0_PDZ_MASK = 0x80,

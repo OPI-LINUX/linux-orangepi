@@ -14,6 +14,7 @@
  * there are no boards known to use channel 1.
  */
 
+#include <linux/clk.h>
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/input.h>
@@ -25,6 +26,7 @@
 #include <linux/pm_wakeirq.h>
 #include <linux/pm_wakeup.h>
 #include <linux/regulator/consumer.h>
+#include <linux/reset.h>
 #include <linux/slab.h>
 
 #define LRADC_CTRL		0x00
@@ -60,10 +62,12 @@
 /* struct lradc_variant - Describe sun4i-a10-lradc-keys hardware variant
  * @divisor_numerator:		The numerator of lradc Vref internally divisor
  * @divisor_denominator:	The denominator of lradc Vref internally divisor
+ * @has_clock_reset:		If the binding requires a clock and reset
  */
 struct lradc_variant {
 	u8 divisor_numerator;
 	u8 divisor_denominator;
+	bool has_clock_reset;
 };
 
 static const struct lradc_variant lradc_variant_a10 = {
@@ -76,6 +80,12 @@ static const struct lradc_variant r_lradc_variant_a83t = {
 	.divisor_denominator = 4
 };
 
+static const struct lradc_variant lradc_variant_r329 = {
+	.divisor_numerator = 3,
+	.divisor_denominator = 4,
+	.has_clock_reset = true,
+};
+
 struct sun4i_lradc_keymap {
 	u32 voltage;
 	u32 keycode;
@@ -85,6 +95,8 @@ struct sun4i_lradc_data {
 	struct device *dev;
 	struct input_dev *input;
 	void __iomem *base;
+	struct clk *clk;
+	struct reset_control *reset;
 	struct regulator *vref_supply;
 	struct sun4i_lradc_keymap *chan0_map;
 	const struct lradc_variant *variant;
@@ -142,6 +154,14 @@ static int sun4i_lradc_open(struct input_dev *dev)
 	if (error)
 		return error;
 
+	error = reset_control_deassert(lradc->reset);
+	if (error)
+		goto err_disable_reg;
+
+	error = clk_prepare_enable(lradc->clk);
+	if (error)
+		goto err_assert_reset;
+
 	lradc->vref = regulator_get_voltage(lradc->vref_supply) *
 		      lradc->variant->divisor_numerator /
 		      lradc->variant->divisor_denominator;
@@ -155,6 +175,13 @@ static int sun4i_lradc_open(struct input_dev *dev)
 	writel(CHAN0_KEYUP_IRQ | CHAN0_KEYDOWN_IRQ, lradc->base + LRADC_INTC);
 
 	return 0;
+
+err_assert_reset:
+	reset_control_assert(lradc->reset);
+err_disable_reg:
+	regulator_disable(lradc->vref_supply);
+
+	return error;
 }
 
 static void sun4i_lradc_close(struct input_dev *dev)
@@ -166,6 +193,8 @@ static void sun4i_lradc_close(struct input_dev *dev)
 		SAMPLE_RATE(2), lradc->base + LRADC_CTRL);
 	writel(0, lradc->base + LRADC_INTC);
 
+	clk_disable_unprepare(lradc->clk);
+	reset_control_assert(lradc->reset);
 	regulator_disable(lradc->vref_supply);
 }
 
@@ -244,6 +273,16 @@ static int sun4i_lradc_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
+	if (lradc->variant->has_clock_reset) {
+		lradc->clk = devm_clk_get(dev, NULL);
+		if (IS_ERR(lradc->clk))
+			return PTR_ERR(lradc->clk);
+
+		lradc->reset = devm_reset_control_get_exclusive(dev, NULL);
+		if (IS_ERR(lradc->reset))
+			return PTR_ERR(lradc->reset);
+	}
+
 	lradc->vref_supply = devm_regulator_get(dev, "vref");
 	if (IS_ERR(lradc->vref_supply))
 		return PTR_ERR(lradc->vref_supply);
@@ -274,10 +313,8 @@ static int sun4i_lradc_probe(struct platform_device *pdev)
 		return PTR_ERR(lradc->base);
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		dev_err(&pdev->dev, "Failed to get IRQ\n");
+	if (irq < 0)
 		return irq;
-	}
 
 	error = devm_request_irq(dev, irq, sun4i_lradc_irq, 0,
 				 "sun4i-a10-lradc-keys", lradc);
@@ -289,11 +326,13 @@ static int sun4i_lradc_probe(struct platform_device *pdev)
 		return error;
 
 	if (device_property_read_bool(dev, "wakeup-source")) {
-		device_set_wakeup_capable(dev, true);
-
 		error = dev_pm_set_wake_irq(dev, irq);
 		if (error)
-			dev_warn(dev, "Failed to set wake IRQ\n");
+			dev_warn(dev,
+				 "Failed to set IRQ %d as a wake IRQ: %d\n",
+				 irq, error);
+		else
+			device_set_wakeup_capable(dev, true);
 	}
 
 	return 0;
@@ -304,6 +343,8 @@ static const struct of_device_id sun4i_lradc_of_match[] = {
 		.data = &lradc_variant_a10 },
 	{ .compatible = "allwinner,sun8i-a83t-r-lradc",
 		.data = &r_lradc_variant_a83t },
+	{ .compatible = "allwinner,sun50i-r329-lradc",
+		.data = &lradc_variant_r329 },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, sun4i_lradc_of_match);

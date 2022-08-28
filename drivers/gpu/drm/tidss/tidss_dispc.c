@@ -2608,16 +2608,9 @@ void dispc_remove(struct tidss_device *tidss)
 static int dispc_iomap_resource(struct platform_device *pdev, const char *name,
 				void __iomem **base)
 {
-	struct resource *res;
 	void __iomem *b;
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, name);
-	if (!res) {
-		dev_err(&pdev->dev, "cannot get mem resource '%s'\n", name);
-		return -EINVAL;
-	}
-
-	b = devm_ioremap_resource(&pdev->dev, res);
+	b = devm_platform_ioremap_resource_byname(pdev, name);
 	if (IS_ERR(b)) {
 		dev_err(&pdev->dev, "cannot ioremap resource '%s'\n", name);
 		return PTR_ERR(b);
@@ -2655,6 +2648,20 @@ static void dispc_init_errata(struct dispc_device *dispc)
 		dispc->errata.i2000 = true;
 		dev_info(dispc->dev, "WA for erratum i2000: YUV formats disabled\n");
 	}
+}
+
+static void dispc_softreset(struct dispc_device *dispc)
+{
+	u32 val;
+	int ret = 0;
+
+	/* Soft reset */
+	REG_FLD_MOD(dispc, DSS_SYSCONFIG, 1, 1, 1);
+	/* Wait for reset to complete */
+	ret = readl_poll_timeout(dispc->base_common + DSS_SYSSTATUS,
+				 val, val & 1, 100, 5000);
+	if (ret)
+		dev_warn(dispc->dev, "failed to reset dispc\n");
 }
 
 int dispc_init(struct tidss_device *tidss)
@@ -2715,6 +2722,10 @@ int dispc_init(struct tidss_device *tidss)
 		if (r)
 			return r;
 	}
+
+	/* K2G display controller does not support soft reset */
+	if (feat->subrev != DISPC_K2G)
+		dispc_softreset(dispc);
 
 	for (i = 0; i < dispc->feat->num_vps; i++) {
 		u32 gamma_size = dispc->feat->vp_feat.color.gamma_size;

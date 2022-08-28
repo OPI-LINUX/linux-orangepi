@@ -140,7 +140,7 @@
 };
 
 &gpio6 {
-	usb1-reset {
+	usb1-reset-hog {
 		gpio-hog;
 		gpios = <10 GPIO_ACTIVE_LOW>;
 		output-low;
@@ -331,6 +331,8 @@
 	vqmmc-supply = <&reg_1p8v>;
 	bus-width = <8>;
 	mmc-hs200-1_8v;
+	no-sd;
+	no-sdio;
 	non-removable;
 	fixed-emmc-driver-type = <1>;
 	status = "okay";
