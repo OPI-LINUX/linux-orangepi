@@ -137,7 +137,7 @@ static irqreturn_t dw_hdmi_cec_hardirq(int irq, void *data)
 	 * mitigate the issue with failed transmit attempts.
 	 */
 	if ((stat & (CEC_STAT_DONE|CEC_STAT_ERROR_INIT)) == (CEC_STAT_DONE|CEC_STAT_ERROR_INIT)) {
-		pr_info("dw_hdmi_cec_hardirq: stat=%02x LOW_DRIVE\n", stat);
+		pr_debug("dw_hdmi_cec_hardirq: stat=%02x LOW_DRIVE\n", stat);
 		cec->tx_status = CEC_TX_STATUS_LOW_DRIVE;
 		cec->tx_done = true;
 		ret = IRQ_WAKE_THREAD;
