@@ -120,6 +120,7 @@ obj-$(CONFIG_FB_PUV3_UNIGFX)      += fb-puv3.o
 obj-$(CONFIG_FB_HYPERV)		  += hyperv_fb.o
 obj-$(CONFIG_FB_OPENCORES)	  += ocfb.o
 obj-$(CONFIG_FB_SM712)		  += sm712fb.o
+obj-$(CONFIG_FB)                  += sunxi/
 
 # Platform or fallback drivers go here
 obj-$(CONFIG_FB_UVESA)            += uvesafb.o
@@ -134,7 +135,3 @@ obj-$(CONFIG_FB_SIMPLE)           += simplefb.o
 
 # the test framebuffer is last
 obj-$(CONFIG_FB_VIRTUAL)          += vfb.o
-
-obj-$(CONFIG_FB_SUN5I_EINK)       += sun5ieink.o
-sun5ieink-objs = sun5i-eink.o sun5i-eink-neon.o
-CFLAGS_sun5i-eink-neon.o	  += -march=armv7-a -mfloat-abi=softfp -mfpu=neon -ffreestanding

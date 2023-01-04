@@ -707,16 +707,14 @@ static int sun4i_usb_phy_probe(struct platform_device *pdev)
 	data->id_det_gpio = devm_gpiod_get_optional(dev, "usb0_id_det",
 						    GPIOD_IN);
 	if (IS_ERR(data->id_det_gpio)) {
-		if (PTR_ERR(data->id_det_gpio) != -EPROBE_DEFER)
-			dev_err(dev, "Couldn't request ID GPIO\n");
+		dev_err(dev, "Couldn't request ID GPIO\n");
 		return PTR_ERR(data->id_det_gpio);
 	}
 
 	data->vbus_det_gpio = devm_gpiod_get_optional(dev, "usb0_vbus_det",
 						      GPIOD_IN);
 	if (IS_ERR(data->vbus_det_gpio)) {
-		if (PTR_ERR(data->vbus_det_gpio) != -EPROBE_DEFER)
-			dev_err(dev, "Couldn't request VBUS detect GPIO\n");
+		dev_err(dev, "Couldn't request VBUS detect GPIO\n");
 		return PTR_ERR(data->vbus_det_gpio);
 	}
 
@@ -724,8 +722,7 @@ static int sun4i_usb_phy_probe(struct platform_device *pdev)
 		data->vbus_power_supply = devm_power_supply_get_by_phandle(dev,
 						     "usb0_vbus_power-supply");
 		if (IS_ERR(data->vbus_power_supply)) {
-			if (PTR_ERR(data->vbus_power_supply) != -EPROBE_DEFER)
-				dev_err(dev, "Couldn't get the VBUS power supply\n");
+			dev_err(dev, "Couldn't get the VBUS power supply\n");
 			return PTR_ERR(data->vbus_power_supply);
 		}
 
@@ -815,31 +812,29 @@ static int sun4i_usb_phy_probe(struct platform_device *pdev)
 		phy_set_drvdata(phy->phy, &data->phys[i]);
 	}
 
-	if (!of_find_property(np, "force-poll-vbus-id-det", NULL)) {
-		data->id_det_irq = gpiod_to_irq(data->id_det_gpio);
-		if (data->id_det_irq > 0) {
-			ret = devm_request_irq(dev, data->id_det_irq,
-					sun4i_usb_phy0_id_vbus_det_irq,
-					IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
-					"usb0-id-det", data);
-			if (ret) {
-				dev_err(dev, "Err requesting id-det-irq: %d\n", ret);
-				return ret;
-			}
+	data->id_det_irq = gpiod_to_irq(data->id_det_gpio);
+	if (data->id_det_irq > 0) {
+		ret = devm_request_irq(dev, data->id_det_irq,
+				sun4i_usb_phy0_id_vbus_det_irq,
+				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+				"usb0-id-det", data);
+		if (ret) {
+			dev_err(dev, "Err requesting id-det-irq: %d\n", ret);
+			return ret;
 		}
+	}
 
-		data->vbus_det_irq = gpiod_to_irq(data->vbus_det_gpio);
-		if (data->vbus_det_irq > 0) {
-			ret = devm_request_irq(dev, data->vbus_det_irq,
-					sun4i_usb_phy0_id_vbus_det_irq,
-					IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
-					"usb0-vbus-det", data);
-			if (ret) {
-				dev_err(dev, "Err requesting vbus-det-irq: %d\n", ret);
-				data->vbus_det_irq = -1;
-				sun4i_usb_phy_remove(pdev); /* Stop detect work */
-				return ret;
-			}
+	data->vbus_det_irq = gpiod_to_irq(data->vbus_det_gpio);
+	if (data->vbus_det_irq > 0) {
+		ret = devm_request_irq(dev, data->vbus_det_irq,
+				sun4i_usb_phy0_id_vbus_det_irq,
+				IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+				"usb0-vbus-det", data);
+		if (ret) {
+			dev_err(dev, "Err requesting vbus-det-irq: %d\n", ret);
+			data->vbus_det_irq = -1;
+			sun4i_usb_phy_remove(pdev); /* Stop detect work */
+			return ret;
 		}
 	}
 

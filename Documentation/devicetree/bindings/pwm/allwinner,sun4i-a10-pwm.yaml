@@ -30,46 +30,12 @@ properties:
       - items:
           - const: allwinner,sun50i-h5-pwm
           - const: allwinner,sun5i-a13-pwm
-      - const: allwinner,sun50i-h6-pwm
 
   reg:
     maxItems: 1
 
-  # Even though it only applies to subschemas under the conditionals,
-  # not listing them here will trigger a warning because of the
-  # additionalsProperties set to false.
-  clocks: true
-  clock-names: true
-  resets:
+  clocks:
     maxItems: 1
-
-allOf:
-  - if:
-      properties:
-        compatible:
-          contains:
-            const: allwinner,sun50i-h6-pwm
-
-    then:
-      properties:
-        clocks:
-          items:
-            - description: Module Clock
-            - description: Bus Clock
-
-        clock-names:
-          items:
-            - const: pwm
-            - const: bus
-
-      required:
-        - clock-names
-        - resets
-
-    else:
-      properties:
-        clocks:
-          maxItems: 1
 
 required:
   - "#pwm-cells"

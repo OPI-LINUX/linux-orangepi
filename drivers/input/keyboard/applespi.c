@@ -961,7 +961,7 @@ static int applespi_tp_dim_open(struct inode *inode, struct file *file)
 	file->private_data = applespi;
 
 	snprintf(applespi->tp_dim_val, sizeof(applespi->tp_dim_val),
-		 "0x%.4x %dx%d+%u+%u\n",
+		 "0x%.4x %dx%d+%d+%d\n",
 		 applespi->touchpad_input_dev->id.product,
 		 applespi->tp_dim_min_x, applespi->tp_dim_min_y,
 		 applespi->tp_dim_max_x - applespi->tp_dim_min_x,
@@ -1237,7 +1237,7 @@ applespi_register_touchpad_device(struct applespi_data *applespi,
 	}
 	if (!touchpad_dimensions[0]) {
 		snprintf(touchpad_dimensions, sizeof(touchpad_dimensions),
-			 "%dx%d+%u+%u",
+			 "%dx%d+%d+%d",
 			 applespi->tp_info.x_min,
 			 applespi->tp_info.y_min,
 			 applespi->tp_info.x_max - applespi->tp_info.x_min,

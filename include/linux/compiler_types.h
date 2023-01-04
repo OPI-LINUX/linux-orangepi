@@ -104,7 +104,7 @@ struct ftrace_likely_data {
 	unsigned long			constant;
 };
 
-#ifdef CONFIG_ENABLE_MUST_CHECK
+#if defined(CONFIG_ENABLE_MUST_CHECK) && !defined(__GENKSYMS__)
 #define __must_check		__attribute__((__warn_unused_result__))
 #else
 #define __must_check
@@ -117,6 +117,10 @@ struct ftrace_likely_data {
 #else
 #define notrace			__attribute__((__no_instrument_function__))
 #endif
+
+/* Section for code which can't be instrumented at all */
+#define noinstr								\
+	noinline notrace __attribute((__section__(".noinstr.text")))
 
 /*
  * it doesn't make sense on ARM (currently the only user of __naked)
@@ -202,6 +206,18 @@ struct ftrace_likely_data {
 # define randomized_struct_fields_end
 #endif
 
+#ifndef __noscs
+# define __noscs
+#endif
+
+#ifndef __norecordmcount
+# define __norecordmcount
+#endif
+
+#ifndef __nocfi
+# define __nocfi
+#endif
+
 #ifndef asm_volatile_goto
 #define asm_volatile_goto(x...) asm goto(x)
 #endif
@@ -210,10 +226,6 @@ struct ftrace_likely_data {
 #define asm_inline asm __inline
 #else
 #define asm_inline asm
-#endif
-
-#ifndef __no_fgcse
-# define __no_fgcse
 #endif
 
 /* Are two types/vars the same type (ignoring qualifiers)? */

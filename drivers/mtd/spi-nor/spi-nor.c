@@ -1011,13 +1011,14 @@ spi_nor_find_best_erase_type(const struct spi_nor_erase_map *map,
 
 		erase = &map->erase_type[i];
 
+		/* Alignment is not mandatory for overlaid regions */
+		if (region->offset & SNOR_OVERLAID_REGION &&
+		    region->size <= len)
+			return erase;
+
 		/* Don't erase more than what the user has asked for. */
 		if (erase->size > len)
 			continue;
-
-		/* Alignment is not mandatory for overlaid regions */
-		if (region->offset & SNOR_OVERLAID_REGION)
-			return erase;
 
 		spi_nor_div_by_erase_size(erase, addr, &rem);
 		if (rem)
@@ -1152,6 +1153,7 @@ static int spi_nor_init_erase_cmd_list(struct spi_nor *nor,
 			goto destroy_erase_cmd_list;
 
 		if (prev_erase != erase ||
+		    erase->size != cmd->size ||
 		    region->offset & SNOR_OVERLAID_REGION) {
 			cmd = spi_nor_init_erase_cmd(region, erase);
 			if (IS_ERR(cmd)) {
@@ -2170,13 +2172,6 @@ static const struct flash_info spi_nor_ids[] = {
 	{ "at26df321",  INFO(0x1f4700, 0, 64 * 1024, 64, SECT_4K) },
 
 	{ "at45db081d", INFO(0x1f2500, 0, 64 * 1024, 16, SECT_4K) },
-
-	/* BergMicro Flashes */
-	{ "bg25q80", INFO(0xe04014, 0, 64 * 1024,  16, SECT_4K) },
-	{ "bg25q16", INFO(0xe04015, 0, 64 * 1024,  32, SECT_4K) },
-	{ "bg25q32", INFO(0xe04016, 0, 64 * 1024,  64, SECT_4K) },
-	{ "bg25q64", INFO(0xe04017, 0, 64 * 1024, 128, SECT_4K) },
-	{ "bg25q128", INFO(0xe04018, 0, 64 * 1024, 256, SECT_4K) },
 
 	/* EON -- en25xxx */
 	{ "en25f32",    INFO(0x1c3116, 0, 64 * 1024,   64, SECT_4K) },
@@ -3707,7 +3702,7 @@ spi_nor_region_check_overlay(struct spi_nor_erase_region *region,
 	int i;
 
 	for (i = 0; i < SNOR_ERASE_TYPE_MAX; i++) {
-		if (!(erase_type & BIT(i)))
+		if (!(erase[i].size && erase_type & BIT(erase[i].idx)))
 			continue;
 		if (region->size & erase[i].size_mask) {
 			spi_nor_region_mark_overlay(region);
@@ -3777,6 +3772,7 @@ spi_nor_init_non_uniform_erase_map(struct spi_nor *nor,
 		offset = (region[i].offset & ~SNOR_ERASE_FLAGS_MASK) +
 			 region[i].size;
 	}
+	spi_nor_region_mark_end(&region[i - 1]);
 
 	save_uniform_erase_type = map->uniform_erase_type;
 	map->uniform_erase_type = spi_nor_sort_erase_mask(map,
@@ -3799,8 +3795,6 @@ spi_nor_init_non_uniform_erase_map(struct spi_nor *nor,
 	for (i = 0; i < SNOR_ERASE_TYPE_MAX; i++)
 		if (!(regions_erase_type & BIT(erase[i].idx)))
 			spi_nor_set_erase_type(&erase[i], 0, 0xFF);
-
-	spi_nor_region_mark_end(&region[i - 1]);
 
 	return 0;
 }
@@ -4451,11 +4445,10 @@ static void spi_nor_sfdp_init_params(struct spi_nor *nor)
 
 	memcpy(&sfdp_params, &nor->params, sizeof(sfdp_params));
 
-	if (spi_nor_parse_sfdp(nor, &sfdp_params)) {
+	if (spi_nor_parse_sfdp(nor, &nor->params)) {
+		memcpy(&nor->params, &sfdp_params, sizeof(nor->params));
 		nor->addr_width = 0;
 		nor->flags &= ~SNOR_F_4B_OPCODES;
-	} else {
-		memcpy(&nor->params, &sfdp_params, sizeof(nor->params));
 	}
 }
 
@@ -5002,22 +4995,6 @@ static int spi_nor_probe(struct spi_mem *spimem)
 	if (!nor)
 		return -ENOMEM;
 
-	nor->reg_vdd = devm_regulator_get(&spi->dev, "vdd");
-	if (IS_ERR(nor->reg_vdd)) {
-		ret = PTR_ERR(nor->reg_vdd);
-		if (ret != -EPROBE_DEFER)
-			dev_err(&spi->dev, "unable to get regulator: %d\n", ret);
-		return ret;
-	}
-
-	ret = regulator_enable(nor->reg_vdd);
-	if (ret) {
-		dev_err(&spi->dev, "unable to enable regulator: %d\n", ret);
-		return ret;
-	}
-
-	msleep(5);
-
 	nor->spimem = spimem;
 	nor->dev = &spi->dev;
 	spi_nor_set_flash_node(nor, spi->dev.of_node);
@@ -5045,7 +5022,7 @@ static int spi_nor_probe(struct spi_mem *spimem)
 
 	ret = spi_nor_scan(nor, flash_name, &hwcaps);
 	if (ret)
-		goto err_reg_disable;
+		return ret;
 
 	/*
 	 * None of the existing parts have > 512B pages, but let's play safe
@@ -5058,20 +5035,12 @@ static int spi_nor_probe(struct spi_mem *spimem)
 		nor->bouncebuf = devm_kmalloc(nor->dev,
 					      nor->bouncebuf_size,
 					      GFP_KERNEL);
-		if (!nor->bouncebuf) {
-			ret = -ENOMEM;
-			goto err_reg_disable;
-		}
+		if (!nor->bouncebuf)
+			return -ENOMEM;
 	}
 
-	ret = mtd_device_register(&nor->mtd, data ? data->parts : NULL,
+	return mtd_device_register(&nor->mtd, data ? data->parts : NULL,
 				   data ? data->nr_parts : 0);
-	if (!ret)
-		return 0;
-
-err_reg_disable:
-	regulator_disable(nor->reg_vdd);
-	return ret;
 }
 
 static int spi_nor_remove(struct spi_mem *spimem)
@@ -5079,7 +5048,6 @@ static int spi_nor_remove(struct spi_mem *spimem)
 	struct spi_nor *nor = spi_mem_get_drvdata(spimem);
 
 	spi_nor_restore(nor);
-	regulator_disable(nor->reg_vdd);
 
 	/* Clean up MTD stuff. */
 	return mtd_device_unregister(&nor->mtd);

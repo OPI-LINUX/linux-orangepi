@@ -736,6 +736,12 @@ config SPI_SUN6I
 	help
 	  This enables using the SPI controller on the Allwinner A31 SoCs.
 
+config SPI_SUNXI
+	tristate "SUNXI SPI Controller"
+	depends on ARCH_SUNXI && OF
+	help
+	  Allwinner Soc SPI controller, present on SUNXI chips.
+
 config SPI_SYNQUACER
 	tristate "Socionext's SynQuacer HighSpeed SPI controller"
 	depends on ARCH_SYNQUACER || COMPILE_TEST

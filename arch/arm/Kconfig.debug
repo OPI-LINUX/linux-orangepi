@@ -1904,4 +1904,10 @@ config PID_IN_CONTEXTIDR
 	  additional instructions during context switch. Say Y here only if you
 	  are planning to use hardware trace tools with this kernel.
 
+config SUNXI_DUMP
+	bool "sunxi dump help to dump all dram area for crash tool"
+	depends on ARCH_SUN8I
+
+
+
 source "drivers/hwtracing/coresight/Kconfig"

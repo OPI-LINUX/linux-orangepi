@@ -143,7 +143,7 @@
 			trips {
 				cpu_alert0: cpu-alert0 {
 					/* milliCelsius */
-					temperature = <850000>;
+					temperature = <85000>;
 					hysteresis = <2000>;
 					type = "passive";
 				};
@@ -665,11 +665,6 @@
 			#interrupt-cells = <3>;
 			#gpio-cells = <3>;
 
-			can0_ph_pins: can0-ph-pins {
-				pins = "PH20", "PH21";
-				function = "can";
-			};
-
 			emac_pins: emac0-pins {
 				pins = "PA0", "PA1", "PA2",
 				       "PA3", "PA4", "PA5", "PA6",
@@ -1043,14 +1038,6 @@
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
-		};
-
-		can0: can@1c2bc00 {
-			compatible = "allwinner,sun4i-a10-can";
-			reg = <0x01c2bc00 0x400>;
-			interrupts = <26>;
-			clocks = <&ccu CLK_APB1_CAN>;
-			status = "disabled";
 		};
 
 		mali: gpu@1c40000 {

@@ -28,13 +28,12 @@
 		power {
 			label = "orangepi:red:power";
 			gpios = <&r_pio 0 4 GPIO_ACTIVE_HIGH>; /* PL4 */
-			default-state = "off";
+			default-state = "on";
 		};
 
 		status {
-			label = "orangepi:yellow:status";
+			label = "orangepi:green:status";
 			gpios = <&r_pio 0 7 GPIO_ACTIVE_HIGH>; /* PL7 */
-			default-state = "on";
 		};
 	};
 
@@ -48,20 +47,11 @@
 	};
 };
 
-&cpu0 {
-	cpu-supply = <&reg_dcdca>;
-};
-
 &ehci0 {
 	status = "okay";
 };
 
 &ehci3 {
-	status = "okay";
-};
-
-&gpu {
-	mali-supply = <&reg_dcdcc>;
 	status = "okay";
 };
 
@@ -168,12 +158,11 @@
 			reg_dcdca: dcdca {
 				regulator-always-on;
 				regulator-min-microvolt = <810000>;
-				regulator-max-microvolt = <1160000>;
+				regulator-max-microvolt = <1080000>;
 				regulator-name = "vdd-cpu";
 			};
 
 			reg_dcdcc: dcdcc {
-				regulator-enable-ramp-delay = <32000>;
 				regulator-min-microvolt = <810000>;
 				regulator-max-microvolt = <1080000>;
 				regulator-name = "vdd-gpu";
@@ -211,7 +200,7 @@
 };
 
 &usb2otg {
-	dr_mode = "host";
+	dr_mode = "otg";
 	status = "okay";
 };
 

@@ -44,11 +44,8 @@
 /dts-v1/;
 
 #include "sun50i-a64.dtsi"
-#include "sun50i-a64-cpu-opp.dtsi"
 
 #include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/input/input.h>
-#include <dt-bindings/pwm/pwm.h>
 
 / {
 	model = "OrangePi Win/Win Plus";
@@ -56,9 +53,11 @@
 
 	aliases {
 		ethernet0 = &emac;
-		ethernet1 = &brcmf;
 		serial0 = &uart0;
 		serial1 = &uart1;
+		serial2 = &uart2;
+		serial3 = &uart3;
+		serial4 = &uart4;
 	};
 
 	chosen {
@@ -115,46 +114,11 @@
 	};
 };
 
-&codec {
-	status = "okay";
-};
-
-&codec_analog {
-	cpvdd-supply = <&reg_eldo1>;
-	status = "okay";
-};
-
-&cpu0 {
-	cpu-supply = <&reg_dcdc2>;
-};
-
-&cpu1 {
-	cpu-supply = <&reg_dcdc2>;
-};
-
-&cpu2 {
-	cpu-supply = <&reg_dcdc2>;
-};
-
-&cpu3 {
-	cpu-supply = <&reg_dcdc2>;
-};
-
-&dai {
-	status = "okay";
-};
-
-&cpu0 {
-       cpu-supply = <&reg_dcdc2>;
-};
-
 &de {
 	status = "okay";
 };
 
 &ehci0 {
-	phys = <&usbphy 0>;
-	phy-names = "usb";
 	status = "okay";
 };
 
@@ -165,7 +129,7 @@
 &emac {
 	pinctrl-names = "default";
 	pinctrl-0 = <&rgmii_pins>;
-	phy-mode = "rgmii";
+	phy-mode = "rgmii-id";
 	phy-handle = <&ext_rgmii_phy>;
 	phy-supply = <&reg_gmac_3v3>;
 	status = "okay";
@@ -180,14 +144,6 @@
 	hdmi_out_con: endpoint {
 		remote-endpoint = <&hdmi_con_in>;
 	};
-};
-
-&i2s2 {
-	status = "okay";
-};
-
-&mixer0 {
-	status = "okay";
 };
 
 &mdio {
@@ -226,21 +182,7 @@
 	};
 };
 
-&mmc2 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&mmc2_pins>, <&mmc2_ds_pin>;
-	vmmc-supply = <&reg_dcdc1>;
-	vqmmc-supply = <&reg_eldo1>;
-	bus-width = <8>;
-	non-removable;
-	cap-mmc-hw-reset;
-	mmc-hs200-1_8v;
-	status = "okay";
-};
-
 &ohci0 {
-	phys = <&usbphy 0>;
-	phy-names = "usb";
 	status = "okay";
 };
 
@@ -354,14 +296,13 @@
 };
 
 &reg_eldo1 {
-	regulator-always-on;
 	regulator-min-microvolt = <1800000>;
 	regulator-max-microvolt = <1800000>;
 	regulator-name = "cpvdd";
 };
 
 &reg_eldo3 {
-	regulator-min-microvolt = <1800000>;
+	regulator-min-microvolt = <1500000>;
 	regulator-max-microvolt = <1800000>;
 	regulator-name = "dvdd-csi";
 };
@@ -384,39 +325,12 @@
 	regulator-name = "vdd-cpus";
 };
 
-&reg_ldo_io0 {
-	regulator-min-microvolt = <3300000>;
-	regulator-max-microvolt = <3300000>;
-	regulator-name = "vcc-usb";
-	status = "okay";
-};
-
 &reg_rtc_ldo {
 	regulator-name = "vcc-rtc";
 };
 
 &simplefb_hdmi {
 	vcc-hdmi-supply = <&reg_dldo1>;
-};
-
-&sound {
-	status = "okay";
-	simple-audio-card,widgets = "Headphone", "Headphone Jack",
-				    "Microphone", "Microphone Jack",
-				    "Microphone", "Onboard Microphone";
-	simple-audio-card,routing =
-			"Left DAC", "AIF1 Slot 0 Left",
-			"Right DAC", "AIF1 Slot 0 Right",
-			"AIF1 Slot 0 Left ADC", "Left ADC",
-			"AIF1 Slot 0 Right ADC", "Right ADC",
-			"Headphone Jack", "HP",
-			"MIC2", "Microphone Jack",
-			"Onboard Microphone", "MBIAS",
-			"MIC1", "Onboard Microphone";
-};
-
-&sound_hdmi {
-	status = "okay";
 };
 
 &spi0 {
@@ -458,8 +372,30 @@
 	};
 };
 
+/* On Pi-2 connector, RTS/CTS optional */
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart2_pins>;
+	status = "disabled";
+};
+
+/* On Pi-2 connector, RTS/CTS optional */
+&uart3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart3_pins>;
+	status = "disabled";
+};
+
+/* On Pi-2 connector (labeled for SPI1), RTS/CTS optional */
+&uart4 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart4_pins>;
+	status = "disabled";
+};
+
 &usb_otg {
-	dr_mode = "host";
+	dr_mode = "otg";
+	status = "okay";
 };
 
 &usbphy {

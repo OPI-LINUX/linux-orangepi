@@ -23,8 +23,6 @@
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 
-#include <sound/soc.h>
-
 #include "sun4i_backend.h"
 #include "sun4i_crtc.h"
 #include "sun4i_drv.h"
@@ -89,10 +87,6 @@ static void sun4i_hdmi_disable(struct drm_encoder *encoder)
 
 	DRM_DEBUG_DRIVER("Disabling the HDMI Output\n");
 
-#ifdef CONFIG_DRM_SUN4I_HDMI_AUDIO
-	sun4i_hdmi_audio_destroy(hdmi);
-#endif
-
 	val = readl(hdmi->base + SUN4I_HDMI_VID_CTRL_REG);
 	val &= ~SUN4I_HDMI_VID_CTRL_ENABLE;
 	writel(val, hdmi->base + SUN4I_HDMI_VID_CTRL_REG);
@@ -120,11 +114,6 @@ static void sun4i_hdmi_enable(struct drm_encoder *encoder)
 		val |= SUN4I_HDMI_VID_CTRL_HDMI_MODE;
 
 	writel(val, hdmi->base + SUN4I_HDMI_VID_CTRL_REG);
-
-#ifdef CONFIG_DRM_SUN4I_HDMI_AUDIO
-	if (hdmi->hdmi_audio && sun4i_hdmi_audio_create(hdmi))
-		DRM_ERROR("Couldn't create the HDMI audio adapter\n");
-#endif
 }
 
 static void sun4i_hdmi_mode_set(struct drm_encoder *encoder,
@@ -229,9 +218,6 @@ static int sun4i_hdmi_get_modes(struct drm_connector *connector)
 	if (!edid)
 		return 0;
 
-#ifdef CONFIG_DRM_SUN4I_HDMI_AUDIO
-	hdmi->hdmi_audio = drm_detect_monitor_audio(edid);
-#endif
 	hdmi->hdmi_monitor = drm_detect_hdmi_monitor(edid);
 	DRM_DEBUG_DRIVER("Monitor is %s monitor\n",
 			 hdmi->hdmi_monitor ? "an HDMI" : "a DVI");

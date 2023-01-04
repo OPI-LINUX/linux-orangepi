@@ -44,7 +44,6 @@
  */
 
 #include "sun50i-a64.dtsi"
-#include "sun50i-a64-cpu-opp.dtsi"
 
 #include <dt-bindings/gpio/gpio.h>
 
@@ -52,30 +51,13 @@
 	cpvdd-supply = <&reg_eldo1>;
 };
 
-&cpu0 {
-	cpu-supply = <&reg_dcdc2>;
-};
-
-&cpu1 {
-	cpu-supply = <&reg_dcdc2>;
-};
-
-&cpu2 {
-	cpu-supply = <&reg_dcdc2>;
-};
-
-&cpu3 {
-	cpu-supply = <&reg_dcdc2>;
-};
-
 &mmc0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&mmc0_pins>;
 	vmmc-supply = <&reg_dcdc1>;
-	non-removable;
 	disable-wp;
 	bus-width = <4>;
-	cd-gpios = <&pio 5 6 GPIO_ACTIVE_LOW>; /* PF6 */
+	cd-gpios = <&pio 5 6 GPIO_ACTIVE_HIGH>; /* PF6 push-pull switch */
 	status = "okay";
 };
 

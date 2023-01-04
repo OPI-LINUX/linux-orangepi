@@ -200,6 +200,8 @@ source "drivers/thunderbolt/Kconfig"
 
 source "drivers/android/Kconfig"
 
+source "drivers/gpu/trace/Kconfig"
+
 source "drivers/nvdimm/Kconfig"
 
 source "drivers/dax/Kconfig"
@@ -213,6 +215,7 @@ source "drivers/fpga/Kconfig"
 source "drivers/fsi/Kconfig"
 
 source "drivers/tee/Kconfig"
+source "drivers/sunxi_drm_heap/Kconfig"
 
 source "drivers/mux/Kconfig"
 

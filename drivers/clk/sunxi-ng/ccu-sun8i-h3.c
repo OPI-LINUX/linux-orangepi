@@ -23,21 +23,15 @@
 
 #include "ccu-sun8i-h3.h"
 
-static struct ccu_nkmp pll_cpux_clk = {
-	.enable		= BIT(31),
-	.lock		= BIT(28),
-	.n		= _SUNXI_CCU_MULT(8, 5),
-	.k		= _SUNXI_CCU_MULT(4, 2),
-	.m		= _SUNXI_CCU_DIV_MAX(0, 2, 1),
-	.p		= _SUNXI_CCU_DIV_MAX(16, 2, 1),
-	.common		= {
-		.reg		= 0x000,
-		.hw.init	= CLK_HW_INIT("pll-cpux",
-					      "osc24M",
-					      &ccu_nkmp_ops,
-					      CLK_SET_RATE_UNGATE),
-	},
-};
+static SUNXI_CCU_NKMP_WITH_GATE_LOCK(pll_cpux_clk, "pll-cpux",
+				     "osc24M", 0x000,
+				     8, 5,	/* N */
+				     4, 2,	/* K */
+				     0, 2,	/* M */
+				     16, 2,	/* P */
+				     BIT(31),	/* gate */
+				     BIT(28),	/* lock */
+				     CLK_SET_RATE_UNGATE);
 
 /*
  * The Audio PLL is supposed to have 4 outputs: 3 fixed factors from
@@ -279,9 +273,8 @@ static SUNXI_CCU_GATE(bus_de_clk,	"bus-de",	"ahb1",
 		      0x064, BIT(12), 0);
 static SUNXI_CCU_GATE(bus_gpu_clk,	"bus-gpu",	"ahb1",
 		      0x064, BIT(20), 0);
-/* Used for communication between firmware components at runtime */
 static SUNXI_CCU_GATE(bus_msgbox_clk,	"bus-msgbox",	"ahb1",
-		      0x064, BIT(21), CLK_IS_CRITICAL);
+		      0x064, BIT(21), 0);
 static SUNXI_CCU_GATE(bus_spinlock_clk,	"bus-spinlock",	"ahb1",
 		      0x064, BIT(22), 0);
 
@@ -329,6 +322,7 @@ static struct clk_div_table ths_div_table[] = {
 	{ .val = 1, .div = 2 },
 	{ .val = 2, .div = 4 },
 	{ .val = 3, .div = 6 },
+	{ /* Sentinel */ },
 };
 static SUNXI_CCU_DIV_TABLE_WITH_GATE(ths_clk, "ths", "osc24M",
 				     0x074, 0, 2, ths_div_table, BIT(31), 0);

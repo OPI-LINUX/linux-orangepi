@@ -353,6 +353,13 @@ config AXP288_FUEL_GAUGE
 	  monitoring as well as alerts for battery over/under voltage and
 	  over/under temperature.
 
+config AXP803_POWER
+	tristate "AXP803 power supply driver"
+	depends on MFD_AXP2101
+	help
+	  This driver provides support for the power supply features of
+	  AXP803 PMIC.
+
 config BATTERY_MAX17040
 	tristate "Maxim MAX17040 Fuel Gauge"
 	depends on I2C
@@ -480,7 +487,7 @@ config CHARGER_GPIO
 	  called gpio-charger.
 
 config CHARGER_MANAGER
-	bool "Battery charger manager for multiple chargers"
+	tristate "Battery charger manager for multiple chargers"
 	depends on REGULATOR
 	select EXTCON
 	help
@@ -709,5 +716,20 @@ config CHARGER_WILCO
 	  by the Embedded Controller on the Chromebook named Wilco. Further
 	  information can be found in
 	  Documentation/ABI/testing/sysfs-class-power-wilco
+
+config AXP2202_POWER
+	tristate "AXP2202 power supply driver"
+	depends on MFD_AXP2101
+	help
+	  This driver provides support for the power supply features of
+	  AXP2202 PMIC.
+
+config AXP2202_GPIO_POWER
+	tristate "AXP2202 power virtual acin"
+	depends on MFD_AXP2101
+	help
+	  This driver provides support for acin function in
+	  AXP2202 PMIC.
+
 
 endif # POWER_SUPPLY

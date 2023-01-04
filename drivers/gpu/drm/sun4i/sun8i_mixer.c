@@ -373,13 +373,8 @@ static struct drm_plane **sun8i_layers_init(struct drm_device *drm,
 
 	for (i = 0; i < mixer->cfg->ui_num; i++) {
 		struct sun8i_ui_layer *layer;
-		enum drm_plane_type type = DRM_PLANE_TYPE_OVERLAY;
-		if (i == 0)
-			type = DRM_PLANE_TYPE_PRIMARY;
-		else if (i == (mixer->cfg->ui_num - 1))
-			type = DRM_PLANE_TYPE_CURSOR;
 
-		layer = sun8i_ui_layer_init_one(drm, mixer, i, type);
+		layer = sun8i_ui_layer_init_one(drm, mixer, i);
 		if (IS_ERR(layer)) {
 			dev_err(drm->dev, "Couldn't initialize %s plane\n",
 				i ? "overlay" : "primary");
@@ -401,7 +396,7 @@ static struct regmap_config sun8i_mixer_regmap_config = {
 	.reg_bits	= 32,
 	.val_bits	= 32,
 	.reg_stride	= 4,
-	.max_register	= 0xbfffc, /* guessed */
+	.max_register	= 0xffffc, /* guessed */
 };
 
 static int sun8i_mixer_of_get_id(struct device_node *node)
@@ -659,14 +654,6 @@ static const struct sun8i_mixer_cfg sun8i_r40_mixer1_cfg = {
 	.vi_num		= 1,
 };
 
-static const struct sun8i_mixer_cfg sun8i_h3_mixer1_cfg = {
-	.ccsc		= 1,
-	.mod_rate	= 432000000,
-	.scaler_mask	= 0xf,
-	.ui_num		= 3,
-	.vi_num		= 1,
-};
-
 static const struct sun8i_mixer_cfg sun8i_v3s_mixer_cfg = {
 	.vi_num = 2,
 	.ui_num = 1,
@@ -724,10 +711,6 @@ static const struct of_device_id sun8i_mixer_of_table[] = {
 	{
 		.compatible = "allwinner,sun8i-r40-de2-mixer-1",
 		.data = &sun8i_r40_mixer1_cfg,
-	},
-	{
-		.compatible = "allwinner,sun8i-h3-de2-mixer-1",
-		.data = &sun8i_h3_mixer1_cfg,
 	},
 	{
 		.compatible = "allwinner,sun8i-v3s-de2-mixer",

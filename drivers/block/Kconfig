@@ -121,6 +121,7 @@ source "drivers/block/mtip32xx/Kconfig"
 
 source "drivers/block/zram/Kconfig"
 
+source "modules/nand/Kconfig"
 config BLK_DEV_UMEM
 	tristate "Micro Memory MM5415 Battery Backed RAM support"
 	depends on PCI
@@ -461,6 +462,7 @@ config BLK_DEV_RBD
 config BLK_DEV_RSXX
 	tristate "IBM Flash Adapter 900GB Full Height PCIe Device Driver"
 	depends on PCI
+	select CRC32
 	help
 	  Device driver for IBM's high speed PCIe SSD
 	  storage device: Flash Adapter 900GB Full Height.

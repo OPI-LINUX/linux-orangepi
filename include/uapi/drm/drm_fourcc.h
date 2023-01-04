@@ -447,6 +447,30 @@ extern "C" {
  */
 #define DRM_FORMAT_MOD_QCOM_COMPRESSED	fourcc_mod_code(QCOM, 1)
 
+/*
+ * QTI DX Format
+ *
+ * Refers to a DX variant of the base format.
+ * Implementation may be platform and base-format specific.
+ */
+#define DRM_FORMAT_MOD_QCOM_DX	fourcc_mod_code(QCOM, 0x2)
+
+/*
+ * QTI Tight Format
+ *
+ * Refers to a tightly packed variant of the base format.
+ * Implementation may be platform and base-format specific.
+ */
+#define DRM_FORMAT_MOD_QCOM_TIGHT	fourcc_mod_code(QCOM, 0x4)
+
+/*
+ * QTI Tile Format
+ *
+ * Refers to a tile variant of the base format.
+ * Implementation may be platform and base-format specific.
+ */
+#define DRM_FORMAT_MOD_QCOM_TILE	fourcc_mod_code(QCOM, 0x8)
+
 /* Vivante framebuffer modifiers */
 
 /*
@@ -755,15 +779,6 @@ extern "C" {
  * both in row-major order.
  */
 #define DRM_FORMAT_MOD_ALLWINNER_TILED fourcc_mod_code(ALLWINNER, 1)
-
-/*
- * ARM tiled format
- *
- * This is used by ARM Mali Utgard/Midgard GPU. It divides buffer into
- * 16x16 pixel blocks. Blocks are stored linearly in order, but pixels
- * in the block are reordered.
- */
-#define DRM_FORMAT_MOD_ARM_TILED fourcc_mod_code(ARM, 1)
 
 #if defined(__cplusplus)
 }

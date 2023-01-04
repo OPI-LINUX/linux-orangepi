@@ -765,16 +765,6 @@
 			#gpio-cells = <3>;
 
 			/omit-if-no-ref/
-			can_pa_pins: can-pa-pins {
-				pins = "PA16", "PA17";
-				function = "can";
-			};
-
-			/omit-if-no-ref/
-			can_ph_pins: can-ph-pins {
-				pins = "PH20", "PH21";
-				function = "can";
-			};
 
 			/omit-if-no-ref/
 			clk_out_a_pin: clk-out-a-pin {
@@ -1409,15 +1399,6 @@
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
-		};
-
-		can0: can@1c2bc00 {
-			compatible = "allwinner,sun7i-a20-can",
-				     "allwinner,sun4i-a10-can";
-			reg = <0x01c2bc00 0x400>;
-			interrupts = <GIC_SPI 26 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ccu CLK_APB1_CAN>;
-			status = "disabled";
 		};
 
 		i2c4: i2c@1c2c000 {

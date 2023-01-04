@@ -148,7 +148,8 @@ static int raydium_i2c_send(struct i2c_client *client,
 		return -ENOMEM;
 
 	buf[0] = addr;
-	memcpy(buf + 1, data, len);
+	if (data != null)
+		memcpy(buf + 1, data, len);
 
 	do {
 		ret = i2c_master_send(client, buf, len + 1);

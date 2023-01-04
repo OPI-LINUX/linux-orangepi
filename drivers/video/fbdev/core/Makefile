@@ -3,7 +3,7 @@ obj-$(CONFIG_FB_CMDLINE)          += fb_cmdline.o
 obj-$(CONFIG_FB_NOTIFY)           += fb_notify.o
 obj-$(CONFIG_FB)                  += fb.o
 fb-y                              := fbmem.o fbmon.o fbcmap.o fbsysfs.o \
-                                     modedb.o fbcvt.o
+                                     modedb.o fbcvt.o fb_notify.o
 fb-$(CONFIG_FB_DEFERRED_IO)       += fb_defio.o
 
 ifeq ($(CONFIG_FRAMEBUFFER_CONSOLE),y)
@@ -27,6 +27,3 @@ obj-$(CONFIG_FB_SYS_IMAGEBLIT) += sysimgblt.o
 obj-$(CONFIG_FB_SYS_FOPS)      += fb_sys_fops.o
 obj-$(CONFIG_FB_SVGALIB)       += svgalib.o
 obj-$(CONFIG_FB_DDC)           += fb_ddc.o
-
-obj-$(CONFIG_BOOTSPLASH)       += bootsplash.o bootsplash_render.o \
-                                  bootsplash_load.o dummyblit.o

@@ -28,9 +28,6 @@ struct ccu_nkm {
 
 	unsigned int		fixed_post_div;
 
-	unsigned int		min_rate;
-	unsigned int		max_rate;
-
 	struct ccu_common	common;
 };
 

@@ -131,7 +131,7 @@
 	pinctrl-0 = <&emac_rgmii_pins>;
 	phy-supply = <&reg_sw>;
 	phy-handle = <&rgmii_phy>;
-	phy-mode = "rgmii";
+	phy-mode = "rgmii-id";
 	allwinner,rx-delay-ps = <700>;
 	allwinner,tx-delay-ps = <700>;
 	status = "okay";
@@ -188,11 +188,6 @@
 	bus-width = <8>;
 	non-removable;
 	cap-mmc-hw-reset;
-	status = "okay";
-};
-
-&r_cir {
-	clock-frequency = <3000000>;
 	status = "okay";
 };
 

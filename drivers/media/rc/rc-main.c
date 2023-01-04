@@ -20,6 +20,8 @@
 /* Sizes are in bytes, 256 bytes allows for 32 entries on x64 */
 #define IR_TAB_MIN_SIZE	256
 #define IR_TAB_MAX_SIZE	8192
+/* FIXME: IR_KEYPRESS_TIMEOUT should be protocol specific */
+#define IR_KEYPRESS_TIMEOUT 160
 
 static const struct {
 	const char *name;
@@ -83,6 +85,7 @@ static const struct {
 static LIST_HEAD(rc_map_list);
 static DEFINE_SPINLOCK(rc_map_lock);
 static struct led_trigger *led_feedback;
+static int key_repeat;
 
 /* Used to keep track of rc devices */
 static DEFINE_IDA(rc_ida);
@@ -608,11 +611,17 @@ static void ir_do_keyup(struct rc_dev *dev, bool sync)
 
 	dev_dbg(&dev->dev, "keyup key 0x%04x\n", dev->last_keycode);
 	del_timer(&dev->timer_repeat);
+/*sunxi_multi ir only care scancode, not really keycode*/
+#ifdef CONFIG_SUNXI_MULTI_IR_SUPPORT
+	input_event(dev->input_dev, EV_MSC, MSC_SCAN, (dev->last_scancode & (~(0x1 << 24))));
+#else
 	input_report_key(dev->input_dev, dev->last_keycode, 0);
+#endif
 	led_trigger_event(led_feedback, LED_OFF);
 	if (sync)
 		input_sync(dev->input_dev);
 	dev->keypressed = false;
+	key_repeat = 0;
 }
 
 /**
@@ -686,6 +695,7 @@ static void ir_timer_repeat(struct timer_list *t)
 	spin_unlock_irqrestore(&dev->keylock, flags);
 }
 
+#ifndef CONFIG_ARCH_SUN50IW9
 static unsigned int repeat_period(int protocol)
 {
 	if (protocol >= ARRAY_SIZE(protocols))
@@ -693,7 +703,7 @@ static unsigned int repeat_period(int protocol)
 
 	return protocols[protocol].repeat_period;
 }
-
+#endif
 /**
  * rc_repeat() - signals that a key is still pressed
  * @dev:	the struct rc_dev descriptor of the device
@@ -705,8 +715,7 @@ static unsigned int repeat_period(int protocol)
 void rc_repeat(struct rc_dev *dev)
 {
 	unsigned long flags;
-	unsigned int timeout = nsecs_to_jiffies(dev->timeout) +
-		msecs_to_jiffies(repeat_period(dev->last_protocol));
+
 	struct lirc_scancode sc = {
 		.scancode = dev->last_scancode, .rc_proto = dev->last_protocol,
 		.keycode = dev->keypressed ? dev->last_keycode : KEY_RESERVED,
@@ -718,15 +727,22 @@ void rc_repeat(struct rc_dev *dev)
 		ir_lirc_scancode_event(dev, &sc);
 
 	spin_lock_irqsave(&dev->keylock, flags);
-
+#ifdef CONFIG_SUNXI_MULTI_IR_SUPPORT
+	if (!dev->keypressed)
+		goto out;
+	key_repeat = 1;
+#else
 	input_event(dev->input_dev, EV_MSC, MSC_SCAN, dev->last_scancode);
 	input_sync(dev->input_dev);
+	if (!dev->keypressed)
+		goto out;
 
 	if (dev->keypressed) {
-		dev->keyup_jiffies = jiffies + timeout;
+		dev->keyup_jiffies = jiffies + msecs_to_jiffies(IR_KEYPRESS_TIMEOUT);
 		mod_timer(&dev->timer_keyup, dev->keyup_jiffies);
 	}
-
+#endif
+out:
 	spin_unlock_irqrestore(&dev->keylock, flags);
 }
 EXPORT_SYMBOL_GPL(rc_repeat);
@@ -748,6 +764,7 @@ static void ir_do_keydown(struct rc_dev *dev, enum rc_proto protocol,
 	bool new_event = (!dev->keypressed		 ||
 			  dev->last_protocol != protocol ||
 			  dev->last_scancode != scancode ||
+			  !key_repeat                    ||
 			  dev->last_toggle   != toggle);
 	struct lirc_scancode sc = {
 		.scancode = scancode, .rc_proto = protocol,
@@ -760,6 +777,26 @@ static void ir_do_keydown(struct rc_dev *dev, enum rc_proto protocol,
 
 	if (new_event && dev->keypressed)
 		ir_do_keyup(dev, false);
+#ifdef CONFIG_SUNXI_MULTI_IR_SUPPORT
+	if (new_event) {
+		/* Register a keypress */
+		dev->keypressed = true;
+		key_repeat = 0;
+		dev->last_protocol = protocol;
+		dev->last_scancode = scancode;
+		dev->last_toggle = toggle;
+		dev->last_keycode = keycode;
+		input_event(dev->input_dev, EV_MSC, MSC_SCAN, scancode | (0x01 << 24));
+		/*
+		dev_dbg(&dev->dev, "%s: key down event, "
+			   "key 0x%04x, protocol 0x%04x, scancode 0x%08x\n",
+			   dev->input_name, keycode, protocol, scancode);
+		*/
+		led_trigger_event(led_feedback, LED_FULL);
+	} else {
+		dev_dbg(&dev->dev, "scode :0x%4x , repeat :0x%4x\n", dev->last_scancode, key_repeat);
+	}
+#else
 
 	input_event(dev->input_dev, EV_MSC, MSC_SCAN, scancode);
 
@@ -778,7 +815,7 @@ static void ir_do_keydown(struct rc_dev *dev, enum rc_proto protocol,
 
 		led_trigger_event(led_feedback, LED_FULL);
 	}
-
+#endif
 	/*
 	 * For CEC, start sending repeat messages as soon as the first
 	 * repeated message is sent, as long as REP_DELAY = 0 and REP_PERIOD
@@ -819,8 +856,12 @@ void rc_keydown(struct rc_dev *dev, enum rc_proto protocol, u32 scancode,
 	ir_do_keydown(dev, protocol, scancode, keycode, toggle);
 
 	if (dev->keypressed) {
+#ifdef CONFIG_ARCH_SUN50IW9
+		dev->keyup_jiffies = jiffies + msecs_to_jiffies(IR_KEYPRESS_TIMEOUT);
+#else
 		dev->keyup_jiffies = jiffies + nsecs_to_jiffies(dev->timeout) +
 			msecs_to_jiffies(repeat_period(protocol));
+#endif
 		mod_timer(&dev->timer_keyup, dev->keyup_jiffies);
 	}
 	spin_unlock_irqrestore(&dev->keylock, flags);
@@ -1892,6 +1933,8 @@ int rc_register_device(struct rc_dev *dev)
 			goto out_raw;
 	}
 
+	dev->registered = true;
+
 	rc = device_add(&dev->dev);
 	if (rc)
 		goto out_rx_free;
@@ -1900,8 +1943,6 @@ int rc_register_device(struct rc_dev *dev)
 	dev_info(&dev->dev, "%s as %s\n",
 		 dev->device_name ?: "Unspecified device", path ?: "N/A");
 	kfree(path);
-
-	dev->registered = true;
 
 	/*
 	 * once the the input device is registered in rc_setup_rx_device,
@@ -2033,6 +2074,9 @@ static int __init rc_core_init(void)
 
 	led_trigger_register_simple("rc-feedback", &led_feedback);
 	rc_map_register(&empty_map);
+#ifdef CONFIG_MEDIA_CEC_RC
+	rc_map_register(&cec_map);
+#endif
 
 	return 0;
 }
@@ -2042,6 +2086,9 @@ static void __exit rc_core_exit(void)
 	lirc_dev_exit();
 	class_unregister(&rc_class);
 	led_trigger_unregister_simple(led_feedback);
+#ifdef CONFIG_MEDIA_CEC_RC
+	rc_map_unregister(&cec_map);
+#endif
 	rc_map_unregister(&empty_map);
 }
 

@@ -1,11 +1,32 @@
 # SPDX-License-Identifier: GPL-2.0-only
 if ARCH_SUNXI
+menu "Allwinner SOC PINCTRL DRIVER"
 
 config PINCTRL_SUNXI
-	bool
+	tristate "Sunxi Pinctrl core driver"
 	select PINMUX
 	select GENERIC_PINCONF
 	select GPIOLIB
+
+config PINCTRL_SUN50IW9
+	tristate "Support for the Allwinner sun50iw9 PIO"
+	select PINCTRL_SUNXI
+	default ARCH_SUN50IW9
+
+config PINCTRL_SUN50IW9_R
+	tristate "Support for the Allwinner sun50iw9 R-PIO"
+	select PINCTRL_SUNXI
+	default ARCH_SUN50IW9
+
+config PINCTRL_SUN50IW10P1
+	tristate "Pinctrl sun50iw10p1 PIO controller"
+	select PINCTRL_SUNXI
+	default ARCH_SUN50IW10
+
+config PINCTRL_SUN50IW10P1_R
+	tristate "Pinctrl sun50iw10p1 R_PIO controller"
+	select PINCTRL_SUNXI
+	default ARCH_SUN50IW10
 
 config PINCTRL_SUNIV_F1C100S
 	def_bool MACH_SUNIV
@@ -94,6 +115,16 @@ config PINCTRL_SUN50I_A64_R
 	default ARM64 && ARCH_SUNXI
 	select PINCTRL_SUNXI
 
+config PINCTRL_SUN50I_A100
+	bool "Support for the Allwinner A100 PIO"
+	default ARM64 && ARCH_SUNXI
+	select PINCTRL_SUNXI
+
+config PINCTRL_SUN50I_A100_R
+	bool "Support for the Allwinner A100 R-PIO"
+	default ARM64 && ARCH_SUNXI
+	select PINCTRL_SUNXI
+
 config PINCTRL_SUN50I_H5
 	bool "Support for the Allwinner H5 PIO"
 	default ARM64 && ARCH_SUNXI
@@ -109,4 +140,5 @@ config PINCTRL_SUN50I_H6_R
 	default ARM64 && ARCH_SUNXI
 	select PINCTRL_SUNXI
 
+endmenu
 endif

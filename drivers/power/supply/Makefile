@@ -23,6 +23,9 @@ obj-$(CONFIG_CHARGER_ADP5061)	+= adp5061.o
 obj-$(CONFIG_BATTERY_ACT8945A)	+= act8945a_charger.o
 obj-$(CONFIG_BATTERY_AXP20X)	+= axp20x_battery.o
 obj-$(CONFIG_CHARGER_AXP20X)	+= axp20x_ac_power.o
+obj-$(CONFIG_AXP803_POWER)	+= axp803_usb_power.o
+obj-$(CONFIG_AXP803_POWER)	+= axp803_ac_power.o
+obj-$(CONFIG_AXP803_POWER)	+= axp803_battery.o
 obj-$(CONFIG_BATTERY_CPCAP)	+= cpcap-battery.o
 obj-$(CONFIG_BATTERY_DS2760)	+= ds2760_battery.o
 obj-$(CONFIG_BATTERY_DS2780)	+= ds2780_battery.o
@@ -92,3 +95,7 @@ obj-$(CONFIG_FUEL_GAUGE_SC27XX)	+= sc27xx_fuel_gauge.o
 obj-$(CONFIG_CHARGER_UCS1002)	+= ucs1002_power.o
 obj-$(CONFIG_CHARGER_BD70528)	+= bd70528-charger.o
 obj-$(CONFIG_CHARGER_WILCO)	+= wilco-charger.o
+
+obj-$(CONFIG_AXP2202_POWER)	+= axp2202_usb_power.o
+obj-$(CONFIG_AXP2202_POWER)	+= axp2202_battery.o
+obj-$(CONFIG_AXP2202_GPIO_POWER) += axp2202_gpio_power.o

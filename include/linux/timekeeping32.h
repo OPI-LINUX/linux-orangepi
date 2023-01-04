@@ -43,15 +43,4 @@ static inline void getboottime(struct timespec *ts)
 	*ts = timespec64_to_timespec(ts64);
 }
 
-static inline void get_monotonic_boottime(struct timespec *ts)
-{
-	*ts = ktime_to_timespec(ktime_get_boottime());
-}
-
-static inline void timekeeping_clocktai(struct timespec *ts)
-{
-	*ts = ktime_to_timespec(ktime_get_clocktai());
-}
-
-
 #endif

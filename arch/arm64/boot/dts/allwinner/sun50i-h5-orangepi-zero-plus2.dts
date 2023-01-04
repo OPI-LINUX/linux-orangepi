@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2017 Jagan Teki <jteki@openedev.com>
- * Copyright (C) 2019 Adopted by Igor <igor@armbian.com>
  *
  * This file is dual-licensed: you can use it either under the terms
  * of the GPL or the X11 license, at your option. Note that this dual
@@ -70,17 +69,6 @@
 		};
 	};
 
-        rfkill_bt {
-                compatible = "rfkill-gpio";
-                pinctrl-names = "default";
-                pinctrl-0 = <&bt_pwr_pin>;
-                reset-gpios = <&pio 0 10 GPIO_ACTIVE_HIGH>;
-                clocks = <&rtc 1>;
-                clock-names = "ext_clock";
-                rfkill-name = "sunxi-bt";
-                rfkill-type = "bluetooth";
-        };
-
 	reg_vcc3v3: vcc3v3 {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc3v3";
@@ -89,74 +77,10 @@
 	};
 
 	wifi_pwrseq: wifi_pwrseq {
-                compatible = "mmc-pwrseq-simple";
-                clocks = <&rtc 1>;
-                clock-names = "ext_clock";
+		compatible = "mmc-pwrseq-simple";
 		reset-gpios = <&pio 0 9 GPIO_ACTIVE_LOW>; /* PA9 */
-                post-power-on-delay-ms = <200>;
+		post-power-on-delay-ms = <200>;
 	};
-
-	leds {
-		compatible = "gpio-leds";
-
-		pwr {
-			label = "orangepi:green:pwr";
-			gpios = <&r_pio 0 10 GPIO_ACTIVE_HIGH>; /* PL10 */
-			linux,default-trigger = "default-on";
-		};
-
-		status {
-			label = "orangepi:red:status";
-			gpios = <&pio 0 17 GPIO_ACTIVE_HIGH>; /* PA17 */
-			default-state = "off";
-			/*linux,default-trigger = "heartbeat";*/
-		};
-	};
-
-	reg_vdd_cpux: gpio-regulator {
-		compatible = "regulator-gpio";
-		regulator-name = "vdd-cpux";
-		regulator-type = "voltage";
-		regulator-boot-on;
-		regulator-always-on;
-		regulator-min-microvolt = <1108475>;
-		regulator-max-microvolt = <1307810>;
-		regulator-ramp-delay = <50>; /* 4ms */
-//		enable-gpios =  <&r_pio 0 8 GPIO_ACTIVE_HIGH>; /* PL8 */
-		gpios = <&r_pio 0 6 0>; /* PL6 */
-		enable-active-high;
-		gpios-states = <0x1>;
-		states = <1108475 0x0
-			  1307810 0x1>;
-	};
-
-        reg_cam_avdd: cam-avdd {
-                compatible = "regulator-fixed";
-                regulator-name = "cam500b-avdd";
-                regulator-min-microvolt = <2800000>;
-                regulator-max-microvolt = <2800000>;
-                vin-supply = <&reg_vcc3v3>;
-        };
-
-        reg_cam_dovdd: cam-dovdd {
-                compatible = "regulator-fixed";
-                regulator-name = "cam500b-dovdd";
-                regulator-min-microvolt = <1800000>;
-                regulator-max-microvolt = <1800000>;
-                vin-supply = <&reg_vcc3v3>;
-        };
-
-        reg_cam_dvdd: cam-dvdd {
-                compatible = "regulator-fixed";
-                regulator-name = "cam500b-dvdd";
-                regulator-min-microvolt = <1500000>;
-                regulator-max-microvolt = <1500000>;
-                vin-supply = <&reg_vcc3v3>;
-        };
-};
-
-&cpu0 {
-	cpu-supply = <&reg_vdd_cpux>;
 };
 
 &de {
@@ -217,76 +141,4 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart1_pins>, <&uart1_rts_cts_pins>;
 	status = "okay";
-};
-
-&usb_otg {
-	dr_mode = "otg";
-	status = "okay";
-};
-
-&usbphy {
-	status = "okay";
-};
-
-&pio {
-        bt_pwr_pin: bt_pwr_pin@0 {
-                pins = "PA10";
-                function = "gpio_out";
-        };
-};
-
-&csi {
-        status = "okay";
-
-        port {
-                #address-cells = <1>;
-                #size-cells = <0>;
-
-                /* Parallel bus endpoint */
-                csi_from_ov5640: endpoint {
-                        remote-endpoint = <&ov5640_to_csi>;
-                        bus-width = <8>;
-                        data-shift = <2>;
-                        hsync-active = <1>; /* Active high */
-                        vsync-active = <0>; /* Active low */
-                        data-active = <1>;  /* Active high */
-                        pclk-sample = <1>;  /* Rising */
-                };
-        };
-};
-
-&i2c2 {
-        status = "okay";
-
-        ov5640: camera@3c {
-                compatible = "ovti,ov5640";
-                reg = <0x3c>;
-                pinctrl-names = "default";
-                pinctrl-0 = <&csi_mclk_pin>;
-                clocks = <&ccu CLK_CSI_MCLK>;
-                clock-names = "xclk";
-                reset-gpios = <&pio 4 14 GPIO_ACTIVE_LOW>;
-                /*csien-gpios = <&pio 3 16 GPIO_ACTIVE_HIGH>;*/
-                poweren-gpios = <&pio 0 8 GPIO_ACTIVE_HIGH>;
-                powerdown-gpios = <&pio 4 15 GPIO_ACTIVE_HIGH>;
-                AVDD-supply = <&reg_cam_avdd>;
-                DOVDD-supply = <&reg_cam_dovdd>;
-                DVDD-supply = <&reg_cam_dvdd>;
-
-                port {
-                        ov5640_to_csi: endpoint {
-                                remote-endpoint = <&csi_from_ov5640>;
-                                bus-width = <8>;
-                                data-shift = <2>;
-                                hsync-active = <1>; /* Active high */
-                                vsync-active = <0>; /* Active low */
-                                data-active = <1>;  /* Active high */
-                                pclk-sample = <1>;  /* Rising */
-                                };
-                };
-        };
-};
-
-&i2c2_pins {
-        bias-pull-up;
 };

@@ -880,7 +880,7 @@ config SND_SOC_PCM3168A_SPI
 	select REGMAP_SPI
 
 config SND_SOC_PCM5102A
-	tristate "Texas Instruments PCM5102A CODEC"
+	tristate
 
 config SND_SOC_PCM512x
 	tristate
@@ -1487,5 +1487,12 @@ config SND_SOC_NAU8825
 config SND_SOC_TPA6130A2
 	tristate "Texas Instruments TPA6130A2 headphone amplifier"
 	depends on I2C
+
+config SND_SOC_AC107
+        tristate "Sunxi AC107 Codec"
+        depends on I2C
+        default n
+        help
+          say Y or M if you want to add support for AC107.
 
 endmenu

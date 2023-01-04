@@ -11,22 +11,11 @@
 #include <dt-bindings/reset/sun50i-h6-ccu.h>
 #include <dt-bindings/reset/sun50i-h6-r-ccu.h>
 #include <dt-bindings/reset/sun8i-de2.h>
-#include <dt-bindings/thermal/thermal.h>
 
 / {
 	interrupt-parent = <&gic>;
 	#address-cells = <1>;
 	#size-cells = <1>;
-
-	ac200_pwm_clk: ac200_clk {
-		compatible = "pwm-clock";
-		#clock-cells = <0>;
-		clock-frequency = <24000000>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&pwm1_pin>;
-		pwms = <&pwm 1 42 0>;
-		status = "disabled";
-	};
 
 	cpus {
 		#address-cells = <1>;
@@ -37,10 +26,6 @@
 			device_type = "cpu";
 			reg = <0>;
 			enable-method = "psci";
-			clocks = <&ccu CLK_CPUX>;
-			clock-latency-ns = <244144>; /* 8 32k periods */
-			operating-points-v2 = <&cpu_opp_table>;
-			#cooling-cells = <2>;
 		};
 
 		cpu1: cpu@1 {
@@ -48,10 +33,6 @@
 			device_type = "cpu";
 			reg = <1>;
 			enable-method = "psci";
-			clocks = <&ccu CLK_CPUX>;
-			clock-latency-ns = <244144>; /* 8 32k periods */
-			operating-points-v2 = <&cpu_opp_table>;
-			#cooling-cells = <2>;
 		};
 
 		cpu2: cpu@2 {
@@ -59,10 +40,6 @@
 			device_type = "cpu";
 			reg = <2>;
 			enable-method = "psci";
-			clocks = <&ccu CLK_CPUX>;
-			clock-latency-ns = <244144>; /* 8 32k periods */
-			operating-points-v2 = <&cpu_opp_table>;
-			#cooling-cells = <2>;
 		};
 
 		cpu3: cpu@3 {
@@ -70,94 +47,6 @@
 			device_type = "cpu";
 			reg = <3>;
 			enable-method = "psci";
-			clocks = <&ccu CLK_CPUX>;
-			clock-latency-ns = <244144>; /* 8 32k periods */
-			operating-points-v2 = <&cpu_opp_table>;
-			#cooling-cells = <2>;
-		};
-	};
-
-	cpu_opp_table: opp_table {
-		compatible = "allwinner,sun50i-h6-operating-points";
-		nvmem-cells = <&speedbin_efuse>;
-		opp-shared;
-
-		opp@480000000 {
-			clock-latency-ns = <244144>; /* 8 32k periods */
-			opp-hz = /bits/ 64 <480000000>;
-
-			opp-microvolt-speed0 = <880000>;
-			opp-microvolt-speed1 = <820000>;
-			opp-microvolt-speed2 = <820000>;
-		};
-
-		opp@720000000 {
-			clock-latency-ns = <244144>; /* 8 32k periods */
-			opp-hz = /bits/ 64 <720000000>;
-
-			opp-microvolt-speed0 = <880000>;
-			opp-microvolt-speed1 = <820000>;
-			opp-microvolt-speed2 = <820000>;
-		};
-
-		opp@816000000 {
-			clock-latency-ns = <244144>; /* 8 32k periods */
-			opp-hz = /bits/ 64 <816000000>;
-
-			opp-microvolt-speed0 = <880000>;
-			opp-microvolt-speed1 = <820000>;
-			opp-microvolt-speed2 = <820000>;
-		};
-
-		opp@888000000 {
-			clock-latency-ns = <244144>; /* 8 32k periods */
-			opp-hz = /bits/ 64 <888000000>;
-
-			opp-microvolt-speed0 = <880000>;
-			opp-microvolt-speed1 = <820000>;
-			opp-microvolt-speed2 = <820000>;
-		};
-
-		opp@1080000000 {
-			clock-latency-ns = <244144>; /* 8 32k periods */
-			opp-hz = /bits/ 64 <1080000000>;
-
-			opp-microvolt-speed0 = <940000>;
-			opp-microvolt-speed1 = <880000>;
-			opp-microvolt-speed2 = <880000>;
-		};
-
-		opp@1320000000 {
-			clock-latency-ns = <244144>; /* 8 32k periods */
-			opp-hz = /bits/ 64 <1320000000>;
-
-			opp-microvolt-speed0 = <1000000>;
-			opp-microvolt-speed1 = <940000>;
-			opp-microvolt-speed2 = <940000>;
-		};
-
-		opp@1488000000 {
-			clock-latency-ns = <244144>; /* 8 32k periods */
-			opp-hz = /bits/ 64 <1488000000>;
-
-			opp-microvolt-speed0 = <1060000>;
-			opp-microvolt-speed1 = <1000000>;
-			opp-microvolt-speed2 = <1000000>;
-		};
-
-		opp@1640000000 {
-			opp-hz = /bits/ 64 <1640000000>;
-			opp-microvolt = <1160000 1160000 1160000>;
-			clock-latency-ns = <244144>; /* 8 32k periods */
-		};
-
-		opp@1800000000 {
-			clock-latency-ns = <244144>; /* 8 32k periods */
-			opp-hz = /bits/ 64 <1800000000>;
-
-			opp-microvolt-speed0 = <1160000>;
-			opp-microvolt-speed1 = <1100000>;
-			opp-microvolt-speed2 = <1100000>;
 		};
 	};
 
@@ -205,23 +94,6 @@
 			(GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_HIGH)>,
 			     <GIC_PPI 10
 			(GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_HIGH)>;
-	};
-
-	sound_hdmi: sound {
-		compatible = "simple-audio-card";
-		simple-audio-card,format = "i2s";
-		simple-audio-card,name = "allwinner-hdmi";
-		simple-audio-card,mclk-fs = <256>;
-
-		simple-audio-card,codec {
-			sound-dai = <&hdmi>;
-		};
-
-		simple-audio-card,cpu {
-			sound-dai = <&i2s1>;
-			dai-tdm-slot-num = <2>;
-			dai-tdm-slot-width = <32>;
-		};
 	};
 
 	soc {
@@ -286,86 +158,6 @@
 			allwinner,sram = <&ve_sram 1>;
 		};
 
-		gpu_opp_table: opp-table2 {
-			compatible = "operating-points-v2";
-
-			opp00 {
-				opp-hz = /bits/ 64 <756000000>;
-				opp-microvolt = <1040000>;
-			};
-			opp01 {
-				opp-hz = /bits/ 64 <624000000>;
-				opp-microvolt = <950000>;
-			};
-			opp02 {
-				opp-hz = /bits/ 64 <576000000>;
-				opp-microvolt = <930000>;
-			};
-			opp03 {
-				opp-hz = /bits/ 64 <540000000>;
-				opp-microvolt = <910000>;
-			};
-			opp04 {
-				opp-hz = /bits/ 64 <504000000>;
-				opp-microvolt = <890000>;
-			};
-			opp05 {
-				opp-hz = /bits/ 64 <456000000>;
-				opp-microvolt = <870000>;
-			};
-			opp06 {
-				opp-hz = /bits/ 64 <432000000>;
-				opp-microvolt = <860000>;
-			};
-			opp07 {
-				opp-hz = /bits/ 64 <420000000>;
-				opp-microvolt = <850000>;
-			};
-			opp08 {
-				opp-hz = /bits/ 64 <408000000>;
-				opp-microvolt = <840000>;
-			};
-			opp09 {
-				opp-hz = /bits/ 64 <384000000>;
-				opp-microvolt = <830000>;
-			};
-			opp10 {
-				opp-hz = /bits/ 64 <360000000>;
-				opp-microvolt = <820000>;
-			};
-			opp11 {
-				opp-hz = /bits/ 64 <336000000>;
-				opp-microvolt = <810000>;
-			};
-			opp12 {
-				opp-hz = /bits/ 64 <312000000>;
-				opp-microvolt = <810000>;
-			};
-			opp13 {
-				opp-hz = /bits/ 64 <264000000>;
-				opp-microvolt = <810000>;
-			};
-			opp14 {
-				opp-hz = /bits/ 64 <216000000>;
-				opp-microvolt = <810000>;
-			};
-		};
-
-		gpu: gpu@1800000 {
-			compatible = "allwinner,sun50i-h6-mali",
-				     "arm,mali-t720";
-			reg = <0x01800000 0x4000>;
-			interrupts = <GIC_SPI 84 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 85 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 83 IRQ_TYPE_LEVEL_HIGH>;
-			interrupt-names = "job", "mmu", "gpu";
-			clocks = <&ccu CLK_GPU>, <&ccu CLK_BUS_GPU>;
-			clock-names = "core", "bus";
-			resets = <&ccu RST_BUS_GPU>;
-			operating-points-v2 = <&gpu_opp_table>;
-			status = "disabled";
-		};
-
 		syscon: syscon@3000000 {
 			compatible = "allwinner,sun50i-h6-system-control",
 				     "allwinner,sun50i-a64-system-control";
@@ -424,33 +216,9 @@
 			#dma-cells = <1>;
 		};
 
-		gic: interrupt-controller@3021000 {
-			compatible = "arm,gic-400";
-			reg = <0x03021000 0x1000>,
-			      <0x03022000 0x2000>,
-			      <0x03024000 0x2000>,
-			      <0x03026000 0x2000>;
-			interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_HIGH)>;
-			interrupt-controller;
-			#interrupt-cells = <3>;
-		};
-
 		sid: efuse@3006000 {
 			compatible = "allwinner,sun50i-h6-sid";
 			reg = <0x03006000 0x400>;
-			#address-cells = <1>;
-			#size-cells = <1>;
-
-			ephy_calib: ephy_calib@2c {
-				reg = <0x2c 0x2>;
-			};
-			speedbin_efuse: speed@1c {
-				reg = <0x1c 0x4>;
-			};
-
-			ths_calibration: thermal-sensor-calibration@14 {
-				reg = <0x14 0x6>;
-			};
 		};
 
 		watchdog: watchdog@30090a0 {
@@ -460,16 +228,6 @@
 			interrupts = <GIC_SPI 50 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&osc24M>;
 			/* Broken on some H6 boards */
-			status = "disabled";
-		};
-
-		pwm: pwm@300a000 {
-			compatible = "allwinner,sun50i-h6-pwm";
-			reg = <0x0300a000 0x400>;
-			clocks = <&osc24M>, <&ccu CLK_BUS_PWM>;
-			clock-names = "pwm", "bus";
-			resets = <&ccu RST_BUS_PWM>;
-			#pwm-cells = <3>;
 			status = "disabled";
 		};
 
@@ -487,7 +245,6 @@
 			interrupt-controller;
 			#interrupt-cells = <3>;
 
-			/omit-if-no-ref/
 			ext_rgmii_pins: rgmii-pins {
 				pins = "PD0", "PD1", "PD2", "PD3", "PD4",
 				       "PD5", "PD7", "PD8", "PD9", "PD10",
@@ -533,7 +290,6 @@
 				bias-pull-up;
 			};
 
-			/omit-if-no-ref/
 			mmc2_pins: mmc2-pins {
 				pins = "PC1", "PC4", "PC5", "PC6",
 				       "PC7", "PC8", "PC9", "PC10",
@@ -548,60 +304,21 @@
 				function = "spdif";
 			};
 
-			spi0_pins: spi0-pins {
-				pins = "PC2", "PC3", "PC0", "PC5";
-				function = "spi0";
-			};
-
-			spi1_pins: spi1-pins {
-				pins = "PH5", "PH6", "PH4", "PH3";
-				function = "spi1";
-			};
-
 			uart0_ph_pins: uart0-ph-pins {
 				pins = "PH0", "PH1";
 				function = "uart0";
 			};
+		};
 
-			uart1_pins: uart1-pins {
-				pins = "PG6", "PG7";
-				function = "uart1";
-			};
-
-			uart1_rts_cts_pins: uart1-rts-cts-pins {
-				pins = "PG8", "PG9";
-				function = "uart1";
-			};
-
-			uart2_pins: uart2-pins {
-				pins = "PD19", "PD20";
-				function = "uart2";
-			};
-
-			uart2_rts_cts_pins: uart2-rts-cts-pins {
-				pins = "PD21", "PD22";
-				function = "uart2";
-			};
-
-			uart3_pins: uart3-pins {
-				pins = "PD23", "PD24";
-				function = "uart3";
-			};
-
-			uart3_rts_cts_pins: uart3-rts-cts-pins {
-				pins = "PD25", "PD26";
-				function = "uart3";
-			};
-
-			i2c3_pins: i2c3-pins {
-				pins = "PB17", "PB18";
-				function = "i2c3";
-			};
-
-			pwm1_pin: pwm1-pin {
-				pins = "PB19";
-				function = "pwm1";
-			};
+		gic: interrupt-controller@3021000 {
+			compatible = "arm,gic-400";
+			reg = <0x03021000 0x1000>,
+			      <0x03022000 0x2000>,
+			      <0x03024000 0x2000>,
+			      <0x03026000 0x2000>;
+			interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_HIGH)>;
+			interrupt-controller;
+			#interrupt-cells = <3>;
 		};
 
 		mmc0: mmc@4020000 {
@@ -615,6 +332,7 @@
 			interrupts = <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&mmc0_pins>;
+			max-frequency = <150000000>;
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -631,6 +349,7 @@
 			interrupts = <GIC_SPI 36 IRQ_TYPE_LEVEL_HIGH>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&mmc1_pins>;
+			max-frequency = <150000000>;
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -647,38 +366,7 @@
 			interrupts = <GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&mmc2_pins>;
-			status = "disabled";
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		spi0: spi@5010000 {
-			compatible = "allwinner,sun8i-h3-spi";
-			reg = <0x05010000 0x1000>;
-			interrupts = <GIC_SPI 10 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ccu CLK_BUS_SPI0>, <&ccu CLK_SPI0>;
-			clock-names = "ahb", "mod";
-			dmas = <&dma 22>, <&dma 22>;
-			dma-names = "rx", "tx";
-			pinctrl-names = "default";
-			pinctrl-0 = <&spi0_pins>;
-			resets = <&ccu RST_BUS_SPI0>;
-			status = "disabled";
-			#address-cells = <1>;
-			#size-cells = <0>;
-		};
-
-		spi1: spi@5011000 {
-			compatible = "allwinner,sun8i-h3-spi";
-			reg = <0x05011000 0x1000>;
-			interrupts = <GIC_SPI 11 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ccu CLK_BUS_SPI1>, <&ccu CLK_SPI1>;
-			clock-names = "ahb", "mod";
-			dmas = <&dma 23>, <&dma 23>;
-			dma-names = "rx", "tx";
-			pinctrl-names = "default";
-			pinctrl-0 = <&spi1_pins>;
-			resets = <&ccu RST_BUS_SPI1>;
+			max-frequency = <150000000>;
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -770,30 +458,6 @@
 			#size-cells = <0>;
 		};
 
-		i2c3: i2c@5002c00 {
-			compatible = "allwinner,sun6i-a31-i2c";
-			reg = <0x05002c00 0x400>;
-			interrupts = <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ccu CLK_BUS_I2C3>;
-			resets = <&ccu RST_BUS_I2C3>;
-			pinctrl-names = "default";
-			pinctrl-0 = <&i2c3_pins>;
-			#address-cells = <1>;
-			#size-cells = <0>;
-
-			ac200: mfd@10 {
-				compatible = "x-powers,ac200";
-				reg = <0x10>;
-				clocks = <&ac200_pwm_clk>;
-
-				ac200_ephy: phy {
-					compatible = "x-powers,ac200-ephy";
-					nvmem-cells = <&ephy_calib>;
-					nvmem-cell-names = "ephy_calib";
-				};
-			};
-		};
-
 		emac: ethernet@5020000 {
 			compatible = "allwinner,sun50i-h6-emac",
 				     "allwinner,sun50i-a64-emac";
@@ -827,19 +491,6 @@
 			pinctrl-names = "default";
 			pinctrl-0 = <&spdif_tx_pin>;
 			status = "disabled";
-		};
-
-		i2s1: i2s@5091000 {
-			#sound-dai-cells = <0>;
-			compatible = "allwinner,sun50i-h6-i2s";
-			reg = <0x05091000 0x1000>;
-			interrupts = <GIC_SPI 19 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ccu CLK_BUS_I2S1>, <&ccu CLK_I2S1>;
-			clock-names = "apb", "mod";
-			dmas = <&dma 4>;
-			resets = <&ccu RST_BUS_I2S1>;
-			dma-names = "tx";
-			allwinner,playback-channels = <8>;
 		};
 
 		usb2otg: usb@5100000 {
@@ -885,6 +536,8 @@
 				 <&ccu CLK_USB_OHCI0>;
 			resets = <&ccu RST_BUS_OHCI0>,
 				 <&ccu RST_BUS_EHCI0>;
+			phys = <&usb2phy 0>;
+			phy-names = "usb";
 			status = "disabled";
 		};
 
@@ -895,38 +548,8 @@
 			clocks = <&ccu CLK_BUS_OHCI0>,
 				 <&ccu CLK_USB_OHCI0>;
 			resets = <&ccu RST_BUS_OHCI0>;
-			status = "disabled";
-		};
-
-		dwc3: dwc3@5200000 {
-			compatible = "snps,dwc3";
-			reg = <0x05200000 0x10000>;
-			interrupts = <GIC_SPI 26 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ccu CLK_BUS_XHCI>,
-				 <&ccu CLK_BUS_XHCI>,
-				 <&rtc 0>;
-			clock-names = "ref", "bus_early", "suspend";
-			resets = <&ccu RST_BUS_XHCI>;
-			/*
-			 * The datasheet of the chip doesn't declare the
-			 * peripheral function, and there's no boards known
-			 * to have a USB Type-B port routed to the port.
-			 * In addition, no one has tested the peripheral
-			 * function yet.
-			 * So set the dr_mode to "host" in the DTSI file.
-			 */
-			dr_mode = "host";
-			phys = <&usb3phy>;
-			phy-names = "usb3-phy";
-			status = "disabled";
-		};
-
-		usb3phy: phy@5210000 {
-			compatible = "allwinner,sun50i-h6-usb3-phy";
-			reg = <0x5210000 0x10000>;
-			clocks = <&ccu CLK_USB_PHY1>;
-			resets = <&ccu RST_USB_PHY1>;
-			#phy-cells = <0>;
+			phys = <&usb2phy 0>;
+			phy-names = "usb";
 			status = "disabled";
 		};
 
@@ -957,7 +580,6 @@
 		};
 
 		hdmi: hdmi@6000000 {
-			#sound-dai-cells = <0>;
 			compatible = "allwinner,sun50i-h6-dw-hdmi";
 			reg = <0x06000000 0x10000>;
 			reg-io-width = <1>;
@@ -1099,19 +721,6 @@
 			};
 		};
 
-		r_uart: serial@7080000 {
-			compatible = "snps,dw-apb-uart";
-			reg = <0x07080000 0x400>;
-			interrupts = <GIC_SPI 106 IRQ_TYPE_LEVEL_HIGH>;
-			reg-shift = <2>;
-			reg-io-width = <4>;
-			clocks = <&r_ccu CLK_R_APB2_UART>;
-			resets = <&r_ccu RST_R_APB2_UART>;
-			pinctrl-names = "default";
-			pinctrl-0 = <&r_uart_pins>;
-			status = "disabled";
-		};
-
 		rtc: rtc@7000000 {
 			compatible = "allwinner,sun50i-h6-rtc";
 			reg = <0x07000000 0x400>;
@@ -1170,11 +779,6 @@
 				pins = "PL9";
 				function = "s_cir_rx";
 			};
-
-			r_uart_pins: r-uart-pins {
-				pins = "PL2", "PL3";
-				function = "s_uart";
-			};
 		};
 
 		r_ir: ir@7040000 {
@@ -1203,98 +807,6 @@
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
-		};
-
-		ths: ths@5070400 {
-			compatible = "allwinner,sun50i-h6-ths";
-			reg = <0x05070400 0x100>;
-			interrupts = <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ccu CLK_BUS_THS>;
-			clock-names = "bus";
-			resets = <&ccu RST_BUS_THS>;
-			nvmem-cells = <&ths_calibration>;
-			nvmem-cell-names = "calibration";
-			#thermal-sensor-cells = <1>;
-		};
-	};
-
-	thermal-zones {
-		cpu-thermal {
-			/* milliseconds */
-			polling-delay-passive = <250>;
-			polling-delay = <1000>;
-			thermal-sensors = <&ths 0>;
-
-			trips {
-				cpu_warm: cpu_warm {
-					temperature = <75000>;
-					hysteresis = <2000>;
-					type = "passive";
-				};
-
-				cpu_hot_pre: cpu_hot_pre {
-					temperature = <80000>;
-					hysteresis = <2000>;
-					type = "passive";
- 				};
- 
-				cpu_hot: cpu_hot {
-					temperature = <85000>;
-					hysteresis = <2000>;
-					type = "passive";
-				};
-
-				cpu_very_hot_pre: cpu_very_hot_pre {
-					temperature = <90000>;
-					hysteresis = <2000>;
-					type = "passive";
-				};
-
-				cpu_very_hot: cpu_very_hot {
-					temperature = <95000>;
-					hysteresis = <2000>;
-					type = "passive";
-				};
-
-				cpu_crit: cpu_crit {
-					temperature = <105000>;
-					hysteresis = <2000>;
- 					type = "critical";
-				};
-			};
-
-			cooling-maps {
-				cpu_warm_limit_cpu {
-					trip = <&cpu_warm>;
-					cooling-device = <&cpu0 THERMAL_NO_LIMIT 2>;
-				};
-
-				cpu_hot_pre_limit_cpu {
-					trip = <&cpu_hot_pre>;
-					cooling-device = <&cpu0 2 3>;
-				};
-
-				cpu_hot_limit_cpu {
-					trip = <&cpu_hot>;
-					cooling-device = <&cpu0 3 4>;
-				};
-	
-				cpu_very_hot_pre_limit_cpu {
-					trip = <&cpu_very_hot_pre>;
-					cooling-device = <&cpu0 5 6>;
-				};
-	
-				cpu_very_hot_limit_cpu {
-					trip = <&cpu_very_hot>;
-					cooling-device = <&cpu0 7 THERMAL_NO_LIMIT>;
-				};
-			};
-		};
-
-		gpu-thermal {
-			polling-delay-passive = <0>;
-			polling-delay = <0>;
-			thermal-sensors = <&ths 1>;
 		};
 	};
 };

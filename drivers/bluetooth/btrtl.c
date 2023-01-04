@@ -17,12 +17,8 @@
 
 #define VERSION "0.1"
 
-#define RTL_CHIP_8723CS_CG	3
-#define RTL_CHIP_8723CS_VF	4
-#define RTL_CHIP_8723CS_XX	5
 #define RTL_EPATCH_SIGNATURE	"Realtech"
 #define RTL_ROM_LMP_3499	0x3499
-#define RTL_ROM_LMP_8703B	0x8703
 #define RTL_ROM_LMP_8723A	0x1200
 #define RTL_ROM_LMP_8723B	0x8723
 #define RTL_ROM_LMP_8723D	0x8873
@@ -35,7 +31,6 @@
 #define IC_MATCH_FL_HCIREV	(1 << 1)
 #define IC_MATCH_FL_HCIVER	(1 << 2)
 #define IC_MATCH_FL_HCIBUS	(1 << 3)
-#define IC_MATCH_FL_CHIP_TYPE	(1 << 4)
 #define IC_INFO(lmps, hcir) \
 	.match_flags = IC_MATCH_FL_LMPSUBV | IC_MATCH_FL_HCIREV, \
 	.lmp_subver = (lmps), \
@@ -47,7 +42,6 @@ struct id_table {
 	__u16 hci_rev;
 	__u8 hci_ver;
 	__u8 hci_bus;
-	__u8 chip_type;
 	bool config_needed;
 	bool has_rom_version;
 	char *fw_name;
@@ -94,39 +88,6 @@ static const struct id_table ic_id_table[] = {
 	  .has_rom_version = true,
 	  .fw_name  = "rtl_bt/rtl8723b_fw.bin",
 	  .cfg_name = "rtl_bt/rtl8723b_config" },
-
-	/* 8723CS-CG */
-	{ .match_flags = IC_MATCH_FL_LMPSUBV | IC_MATCH_FL_CHIP_TYPE |
-			 IC_MATCH_FL_HCIBUS,
-	  .lmp_subver = RTL_ROM_LMP_8703B,
-	  .chip_type = RTL_CHIP_8723CS_CG,
-	  .hci_bus = HCI_UART,
-	  .config_needed = true,
-	  .has_rom_version = true,
-	  .fw_name  = "rtl_bt/rtl8723cs_cg_fw.bin",
-	  .cfg_name = "rtl_bt/rtl8723cs_cg_config" },
-
-	/* 8723CS-VF */
-	{ .match_flags = IC_MATCH_FL_LMPSUBV | IC_MATCH_FL_CHIP_TYPE |
-			 IC_MATCH_FL_HCIBUS,
-	  .lmp_subver = RTL_ROM_LMP_8703B,
-	  .chip_type = RTL_CHIP_8723CS_VF,
-	  .hci_bus = HCI_UART,
-	  .config_needed = true,
-	  .has_rom_version = true,
-	  .fw_name  = "rtl_bt/rtl8723cs_vf_fw.bin",
-	  .cfg_name = "rtl_bt/rtl8723cs_vf_config" },
-
-	/* 8723CS-XX */
-	{ .match_flags = IC_MATCH_FL_LMPSUBV | IC_MATCH_FL_CHIP_TYPE |
-			 IC_MATCH_FL_HCIBUS,
-	  .lmp_subver = RTL_ROM_LMP_8703B,
-	  .chip_type = RTL_CHIP_8723CS_XX,
-	  .hci_bus = HCI_UART,
-	  .config_needed = true,
-	  .has_rom_version = true,
-	  .fw_name  = "rtl_bt/rtl8723cs_xx_fw.bin",
-	  .cfg_name = "rtl_bt/rtl8723cs_xx_config" },
 
 	/* 8723D */
 	{ IC_INFO(RTL_ROM_LMP_8723B, 0xd),
@@ -191,8 +152,7 @@ static const struct id_table ic_id_table[] = {
 	};
 
 static const struct id_table *btrtl_match_ic(u16 lmp_subver, u16 hci_rev,
-					     u8 hci_ver, u8 hci_bus,
-					     u8 chip_type)
+					     u8 hci_ver, u8 hci_bus)
 {
 	int i;
 
@@ -208,9 +168,6 @@ static const struct id_table *btrtl_match_ic(u16 lmp_subver, u16 hci_rev,
 			continue;
 		if ((ic_id_table[i].match_flags & IC_MATCH_FL_HCIBUS) &&
 		    (ic_id_table[i].hci_bus != hci_bus))
-			continue;
-		if ((ic_id_table[i].match_flags & IC_MATCH_FL_CHIP_TYPE) &&
-		    (ic_id_table[i].chip_type != chip_type))
 			continue;
 
 		break;
@@ -294,7 +251,6 @@ static int rtlbt_parse_firmware(struct hci_dev *hdev,
 		{ RTL_ROM_LMP_8723B, 1 },
 		{ RTL_ROM_LMP_8821A, 2 },
 		{ RTL_ROM_LMP_8761A, 3 },
-		{ RTL_ROM_LMP_8703B, 7 },
 		{ RTL_ROM_LMP_8822B, 8 },
 		{ RTL_ROM_LMP_8723B, 9 },	/* 8723D */
 		{ RTL_ROM_LMP_8821A, 10 },	/* 8821C */
@@ -414,11 +370,11 @@ static int rtlbt_parse_firmware(struct hci_dev *hdev,
 	 * the end.
 	 */
 	len = patch_length;
-	buf = kmemdup(btrtl_dev->fw_data + patch_offset, patch_length,
-		      GFP_KERNEL);
+	buf = kvmalloc(patch_length, GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;
 
+	memcpy(buf, btrtl_dev->fw_data + patch_offset, patch_length - 4);
 	memcpy(buf + patch_length - 4, &epatch_info->fw_version, 4);
 
 	*_buf = buf;
@@ -504,8 +460,10 @@ static int rtl_load_file(struct hci_dev *hdev, const char *name, u8 **buff)
 	if (ret < 0)
 		return ret;
 	ret = fw->size;
-	*buff = kmemdup(fw->data, ret, GFP_KERNEL);
-	if (!*buff)
+	*buff = kvmalloc(fw->size, GFP_KERNEL);
+	if (*buff)
+		memcpy(*buff, fw->data, ret);
+	else
 		ret = -ENOMEM;
 
 	release_firmware(fw);
@@ -543,14 +501,14 @@ static int btrtl_setup_rtl8723b(struct hci_dev *hdev,
 		goto out;
 
 	if (btrtl_dev->cfg_len > 0) {
-		tbuff = kzalloc(ret + btrtl_dev->cfg_len, GFP_KERNEL);
+		tbuff = kvzalloc(ret + btrtl_dev->cfg_len, GFP_KERNEL);
 		if (!tbuff) {
 			ret = -ENOMEM;
 			goto out;
 		}
 
 		memcpy(tbuff, fw_data, ret);
-		kfree(fw_data);
+		kvfree(fw_data);
 
 		memcpy(tbuff + ret, btrtl_dev->cfg_data, btrtl_dev->cfg_len);
 		ret += btrtl_dev->cfg_len;
@@ -563,56 +521,14 @@ static int btrtl_setup_rtl8723b(struct hci_dev *hdev,
 	ret = rtl_download_firmware(hdev, fw_data, ret);
 
 out:
-	kfree(fw_data);
+	kvfree(fw_data);
 	return ret;
-}
-
-static bool rtl_has_chip_type(u16 lmp_subver)
-{
-	switch (lmp_subver) {
-	case RTL_ROM_LMP_8703B:
-		return true;
-	default:
-		break;
-	}
-
-	return  false;
-}
-
-static int rtl_read_chip_type(struct hci_dev *hdev, u8 *type)
-{
-	struct rtl_chip_type_evt *chip_type;
-	struct sk_buff *skb;
-	const unsigned char cmd_buf[] = {0x00, 0x94, 0xa0, 0x00, 0xb0};
-
-	/* Read RTL chip type command */
-	skb = __hci_cmd_sync(hdev, 0xfc61, 5, cmd_buf, HCI_INIT_TIMEOUT);
-	if (IS_ERR(skb)) {
-		rtl_dev_err(hdev, "Read chip type failed (%ld)",
-			    PTR_ERR(skb));
-		return PTR_ERR(skb);
-	}
-
-	if (skb->len != sizeof(*chip_type)) {
-		rtl_dev_err(hdev, "RTL chip type event length mismatch");
-		kfree_skb(skb);
-		return -EIO;
-	}
-
-	chip_type = (struct rtl_chip_type_evt *)skb->data;
-	rtl_dev_info(hdev, "chip_type status=%x type=%x",
-		     chip_type->status, chip_type->type);
-
-	*type = chip_type->type & 0x0f;
-
-	kfree_skb(skb);
-	return 0;
 }
 
 void btrtl_free(struct btrtl_device_info *btrtl_dev)
 {
-	kfree(btrtl_dev->fw_data);
-	kfree(btrtl_dev->cfg_data);
+	kvfree(btrtl_dev->fw_data);
+	kvfree(btrtl_dev->cfg_data);
 	kfree(btrtl_dev);
 }
 EXPORT_SYMBOL_GPL(btrtl_free);
@@ -625,7 +541,7 @@ struct btrtl_device_info *btrtl_initialize(struct hci_dev *hdev,
 	struct hci_rp_read_local_version *resp;
 	char cfg_name[40];
 	u16 hci_rev, lmp_subver;
-	u8 hci_ver, chip_type = 0;
+	u8 hci_ver;
 	int ret;
 
 	btrtl_dev = kzalloc(sizeof(*btrtl_dev), GFP_KERNEL);
@@ -650,14 +566,8 @@ struct btrtl_device_info *btrtl_initialize(struct hci_dev *hdev,
 	lmp_subver = le16_to_cpu(resp->lmp_subver);
 	kfree_skb(skb);
 
-	if (rtl_has_chip_type(lmp_subver)) {
-		ret = rtl_read_chip_type(hdev, &chip_type);
-		if (ret)
-			goto err_free;
-	}
-
 	btrtl_dev->ic_info = btrtl_match_ic(lmp_subver, hci_rev, hci_ver,
-					    hdev->bus, chip_type);
+					    hdev->bus);
 
 	if (!btrtl_dev->ic_info) {
 		rtl_dev_info(hdev, "unknown IC info, lmp subver %04x, hci rev %04x, hci ver %04x",
@@ -730,7 +640,6 @@ int btrtl_download_firmware(struct hci_dev *hdev,
 	case RTL_ROM_LMP_8821A:
 	case RTL_ROM_LMP_8761A:
 	case RTL_ROM_LMP_8822B:
-	case RTL_ROM_LMP_8703B:
 		return btrtl_setup_rtl8723b(hdev, btrtl_dev);
 	default:
 		rtl_dev_info(hdev, "assuming no firmware upload needed");
@@ -749,12 +658,7 @@ int btrtl_setup_realtek(struct hci_dev *hdev)
 		return PTR_ERR(btrtl_dev);
 
 	ret = btrtl_download_firmware(hdev, btrtl_dev);
-	if (ret)
-		goto out_free;
 
-	btrtl_apply_quirks(hdev, btrtl_dev);
-
-out_free:
 	btrtl_free(btrtl_dev);
 
 	/* Enable controller to do both LE scan and BR/EDR inquiry
@@ -894,24 +798,6 @@ int btrtl_get_uart_settings(struct hci_dev *hdev,
 }
 EXPORT_SYMBOL_GPL(btrtl_get_uart_settings);
 
-void btrtl_apply_quirks(struct hci_dev *hdev,
-			struct btrtl_device_info *btrtl_dev)
-{
-	switch (btrtl_dev->ic_info->lmp_subver) {
-	case RTL_ROM_LMP_8703B:
-		/* 8723CS reports two pages for local ext features,
-		 * but it doesn't support any features from page 2 -
-		 * it either responds with garbage or with error status
-		 */
-		set_bit(HCI_QUIRK_BROKEN_LOCAL_EXT_FTR_MAX_PAGE,
-			&hdev->quirks);
-		break;
-	default:
-		break;
-	}
-}
-EXPORT_SYMBOL_GPL(btrtl_apply_quirks);
-
 MODULE_AUTHOR("Daniel Drake <drake@endlessm.com>");
 MODULE_DESCRIPTION("Bluetooth support for Realtek devices ver " VERSION);
 MODULE_VERSION(VERSION);
@@ -921,12 +807,6 @@ MODULE_FIRMWARE("rtl_bt/rtl8723b_fw.bin");
 MODULE_FIRMWARE("rtl_bt/rtl8723b_config.bin");
 MODULE_FIRMWARE("rtl_bt/rtl8723bs_fw.bin");
 MODULE_FIRMWARE("rtl_bt/rtl8723bs_config.bin");
-MODULE_FIRMWARE("rtl_bt/rtl8723cs_cg_fw.bin");
-MODULE_FIRMWARE("rtl_bt/rtl8723cs_cg_config.bin");
-MODULE_FIRMWARE("rtl_bt/rtl8723cs_vf_fw.bin");
-MODULE_FIRMWARE("rtl_bt/rtl8723cs_vf_config.bin");
-MODULE_FIRMWARE("rtl_bt/rtl8723cs_xx_fw.bin");
-MODULE_FIRMWARE("rtl_bt/rtl8723cs_xx_config.bin");
 MODULE_FIRMWARE("rtl_bt/rtl8723ds_fw.bin");
 MODULE_FIRMWARE("rtl_bt/rtl8723ds_config.bin");
 MODULE_FIRMWARE("rtl_bt/rtl8761a_fw.bin");

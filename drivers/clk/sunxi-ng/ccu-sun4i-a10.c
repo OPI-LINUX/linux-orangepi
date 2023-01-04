@@ -416,8 +416,6 @@ static SUNXI_CCU_GATE(apb1_i2c2_clk,	"apb1-i2c2",	"apb1",
 /* Not present on A10 */
 static SUNXI_CCU_GATE(apb1_i2c3_clk,	"apb1-i2c3",	"apb1",
 		      0x06c, BIT(3), 0);
-static SUNXI_CCU_GATE(apb1_can_clk,	"apb1-can",	"apb1",
-		      0x06c, BIT(4), 0);
 static SUNXI_CCU_GATE(apb1_scr_clk,	"apb1-scr",	"apb1",
 		      0x06c, BIT(5), 0);
 static SUNXI_CCU_GATE(apb1_ps20_clk,	"apb1-ps20",	"apb1",
@@ -935,7 +933,6 @@ static struct ccu_common *sun4i_sun7i_ccu_clks[] = {
 	&apb1_i2c1_clk.common,
 	&apb1_i2c2_clk.common,
 	&apb1_i2c3_clk.common,
-	&apb1_can_clk.common,
 	&apb1_scr_clk.common,
 	&apb1_ps20_clk.common,
 	&apb1_ps21_clk.common,
@@ -1131,7 +1128,6 @@ static struct clk_hw_onecell_data sun4i_a10_hw_clks = {
 		[CLK_APB1_I2C0]		= &apb1_i2c0_clk.common.hw,
 		[CLK_APB1_I2C1]		= &apb1_i2c1_clk.common.hw,
 		[CLK_APB1_I2C2]		= &apb1_i2c2_clk.common.hw,
-		[CLK_APB1_CAN]		= &apb1_can_clk.common.hw,
 		[CLK_APB1_SCR]		= &apb1_scr_clk.common.hw,
 		[CLK_APB1_PS20]		= &apb1_ps20_clk.common.hw,
 		[CLK_APB1_PS21]		= &apb1_ps21_clk.common.hw,
@@ -1288,7 +1284,6 @@ static struct clk_hw_onecell_data sun7i_a20_hw_clks = {
 		[CLK_APB1_I2C1]		= &apb1_i2c1_clk.common.hw,
 		[CLK_APB1_I2C2]		= &apb1_i2c2_clk.common.hw,
 		[CLK_APB1_I2C3]		= &apb1_i2c3_clk.common.hw,
-		[CLK_APB1_CAN]		= &apb1_can_clk.common.hw,
 		[CLK_APB1_SCR]		= &apb1_scr_clk.common.hw,
 		[CLK_APB1_PS20]		= &apb1_ps20_clk.common.hw,
 		[CLK_APB1_PS21]		= &apb1_ps21_clk.common.hw,

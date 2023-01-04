@@ -50,10 +50,11 @@
 #include <linux/syscalls.h>
 #include <linux/of.h>
 #include <linux/rcupdate.h>
-#include <linux/bootsplash.h>
 
 #include <asm/ptrace.h>
 #include <asm/irq_regs.h>
+
+#include <trace/hooks/sysrqcrash.h>
 
 /* Whether we react on sysrq keys or just ignore them */
 static int __read_mostly sysrq_enabled = CONFIG_MAGIC_SYSRQ_DEFAULT_ENABLE;
@@ -106,8 +107,6 @@ static void sysrq_handle_SAK(int key)
 {
 	struct work_struct *SAK_work = &vc_cons[fg_console].SAK_work;
 	schedule_work(SAK_work);
-
-	bootsplash_disable();
 }
 static struct sysrq_key_op sysrq_SAK_op = {
 	.handler	= sysrq_handle_SAK,
@@ -139,6 +138,8 @@ static void sysrq_handle_crash(int key)
 {
 	/* release the RCU read lock before crashing */
 	rcu_read_unlock();
+
+	trace_android_vh_sysrq_crash(current);
 
 	panic("sysrq triggered crash\n");
 }

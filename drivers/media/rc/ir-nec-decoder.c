@@ -5,6 +5,7 @@
 
 #include <linux/bitrev.h>
 #include <linux/module.h>
+#include <uapi/linux/lirc.h>
 #include "rc-core-priv.h"
 
 #define NEC_NBITS		32
@@ -40,8 +41,11 @@ static int ir_nec_decode(struct rc_dev *dev, struct ir_raw_event ev)
 {
 	struct nec_dec *data = &dev->raw->nec;
 	u32 scancode;
-	enum rc_proto rc_proto;
 	u8 address, not_address, command, not_command;
+	bool send_32bits = false;
+
+	if (!(dev->enabled_protocols & RC_PROTO_BIT_NEC))
+		return 0;
 
 	if (!is_timing_event(ev)) {
 		if (ev.reset)
@@ -78,7 +82,13 @@ static int ir_nec_decode(struct rc_dev *dev, struct ir_raw_event ev)
 			data->state = STATE_BIT_PULSE;
 			return 0;
 		} else if (eq_margin(ev.duration, NEC_REPEAT_SPACE, NEC_UNIT / 2)) {
-			data->state = STATE_TRAILER_PULSE;
+			if (!dev->keypressed) {
+				//IR_dprintk(1, "Discarding last key repeat: event after key up\n");
+			} else {
+				rc_repeat(dev);
+				//IR_dprintk(1, "Repeat last key\n");
+				data->state = STATE_TRAILER_PULSE;
+			}
 			return 0;
 		}
 
@@ -138,26 +148,32 @@ static int ir_nec_decode(struct rc_dev *dev, struct ir_raw_event ev)
 		if (!geq_margin(ev.duration, NEC_TRAILER_SPACE, NEC_UNIT / 2))
 			break;
 
-		if (data->count == NEC_NBITS) {
-			address     = bitrev8((data->bits >> 24) & 0xff);
-			not_address = bitrev8((data->bits >> 16) & 0xff);
-			command	    = bitrev8((data->bits >>  8) & 0xff);
-			not_command = bitrev8((data->bits >>  0) & 0xff);
+		address     = bitrev8((data->bits >> 24) & 0xff);
+		not_address = bitrev8((data->bits >> 16) & 0xff);
+		command	    = bitrev8((data->bits >>  8) & 0xff);
+		not_command = bitrev8((data->bits >>  0) & 0xff);
 
-			scancode = ir_nec_bytes_to_scancode(address,
-							    not_address,
-							    command,
-							    not_command,
-							    &rc_proto);
+		if ((command ^ not_command) != 0xff) {
+			//IR_dprintk(1, "NEC checksum error: received 0x%08x\n",data->bits);
+			send_32bits = true;
+		}
+
+		if (send_32bits) {
+			/* NEC transport, but modified protocol, used by at
+			 * least Apple and TiVo remotes */
+			scancode = data->bits;
+			//IR_dprintk(1, "NEC (modified) scancode 0x%08x\n", scancode);
+		} else {
+			/* Extended NEC */
+			scancode = address << 8  |
+				   not_address << 16 |
+				   command;
+			//IR_dprintk(1, "NEC scancode 0x%06x\n", scancode);
+		}
 
 			if (data->is_nec_x)
 				data->necx_repeat = true;
-
-			rc_keydown(dev, rc_proto, scancode, 0);
-		} else {
-			rc_repeat(dev);
-		}
-
+		rc_keydown(dev, RC_PROTO_NEC, scancode, 0);
 		data->state = STATE_INACTIVE;
 		return 0;
 	}

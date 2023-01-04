@@ -683,6 +683,7 @@ config RTC_DRV_S5M
 	tristate "Samsung S2M/S5M series"
 	depends on MFD_SEC_CORE || COMPILE_TEST
 	select REGMAP_IRQ
+	select REGMAP_I2C
 	help
 	  If you say yes here you will get support for the
 	  RTC of Samsung S2MPS14 and S5M PMIC series.
@@ -1551,11 +1552,33 @@ config RTC_DRV_SUN6I
 	  some Allwinner SoCs like the A31 or the A64.
 
 config RTC_DRV_SUNXI
-	tristate "Allwinner sun4i/sun7i RTC"
-	depends on MACH_SUN4I || MACH_SUN7I || COMPILE_TEST
+	tristate "Allwinner sunxi RTC"
+	depends on ARCH_SUNXI
 	help
 	  If you say Y here you will get support for the RTC found on
-	  Allwinner A10/A20.
+	  Allwinner sun8i/sun50i/sun20i.
+
+config SUNXI_REBOOT_FLAG
+	depends on RTC_DRV_SUNXI
+	bool "Sunxi rtc reboot flag"
+	help
+	  Allow reboot app in userspace (such as Android reboot) to save
+	  a flag in the rtc General Purpose Register. The flag could be read
+	  by u-boot, kernel or user app after rebooting.
+
+config SUNXI_FAKE_POWEROFF
+	bool "support ir fake poweroff"
+	depends on RTC_DRV_SUNXI && SUNXI_REBOOT_FLAG
+	default n
+	help
+	  support ir bootup feature.
+	  but must has the module known as "ar100" or "cpus".
+	  the feature is support power up with ir when poweroff.
+
+config SUNXI_RTC_POWEROFF_ALARM
+	bool "Sunxi RTC alarm for poweroff"
+	help
+	  Support RTC alarm when the system is poweroff.
 
 config RTC_DRV_STARFIRE
 	bool "Starfire RTC"

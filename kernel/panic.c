@@ -28,7 +28,11 @@
 #include <linux/init.h>
 #include <linux/nmi.h>
 #include <linux/console.h>
+#include <linux/cpu.h>
+#include <linux/cpumask.h>
+#include <asm/cacheflush.h>
 #include <linux/bug.h>
+#include <linux/sunxi-dump.h>
 #include <linux/ratelimit.h>
 #include <linux/debugfs.h>
 #include <asm/sections.h>
@@ -55,6 +59,13 @@ EXPORT_SYMBOL_GPL(panic_timeout);
 #define PANIC_PRINT_FTRACE_INFO		0x00000010
 #define PANIC_PRINT_ALL_PRINTK_MSG	0x00000020
 unsigned long panic_print;
+
+#ifdef CONFIG_SUNXI_DUMP
+int sunxi_dump = 1;
+#else
+int sunxi_dump;
+#endif
+EXPORT_SYMBOL_GPL(sunxi_dump);
 
 ATOMIC_NOTIFIER_HEAD(panic_notifier_list);
 
@@ -337,6 +348,30 @@ void panic(const char *fmt, ...)
 	disabled_wait();
 #endif
 	pr_emerg("---[ end Kernel panic - not syncing: %s ]---\n", buf);
+
+	if (sunxi_dump) {
+		unsigned int i;
+
+		flush_cache_all();
+#if IS_ENABLED(CONFIG_SUNXI_DUMP)
+		sunxi_dump_group_dump();
+#endif
+
+		for (i = 0; i < num_possible_cpus(); i++) {
+			if (i == smp_processor_id())
+				continue;
+
+			while (1) {
+				if (!cpu_online(i))
+					break;
+				mdelay(10);
+			}
+		}
+		pr_emerg("crashdump enter\n");
+#if IS_ENABLED(CONFIG_SUNXI_DUMP)
+		sunxi_set_crashdump_mode();
+#endif
+	}
 
 	/* Do not scroll important messages printed above */
 	suppress_printk = 1;

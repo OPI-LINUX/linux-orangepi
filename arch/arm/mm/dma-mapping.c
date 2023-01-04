@@ -979,6 +979,7 @@ static void __dma_page_dev_to_cpu(struct page *page, unsigned long off,
 			pfn++;
 			left -= PAGE_SIZE - off;
 		}
+		WARN_ON(PageBuddy(page));
 		while (left >= PAGE_SIZE) {
 			page = pfn_to_page(pfn++);
 			set_bit(PG_dcache_clean, &page->flags);
@@ -2239,6 +2240,8 @@ static const struct dma_map_ops *arm_get_iommu_dma_map_ops(bool coherent)
 	return coherent ? &iommu_coherent_ops : &iommu_ops;
 }
 
+static struct dma_iommu_mapping *sunxi_mapping;
+
 static bool arm_setup_iommu_dma_ops(struct device *dev, u64 dma_base, u64 size,
 				    const struct iommu_ops *iommu)
 {
@@ -2247,12 +2250,16 @@ static bool arm_setup_iommu_dma_ops(struct device *dev, u64 dma_base, u64 size,
 	if (!iommu)
 		return false;
 
-	mapping = arm_iommu_create_mapping(dev->bus, dma_base, size);
-	if (IS_ERR(mapping)) {
-		pr_warn("Failed to create %llu-byte IOMMU mapping for device %s\n",
-				size, dev_name(dev));
-		return false;
-	}
+	if (!sunxi_mapping) {
+		mapping = arm_iommu_create_mapping(dev->bus, dma_base, size);
+		if (IS_ERR(mapping)) {
+			pr_warn("Failed to create %llu-byte IOMMU mapping for device %s\n",
+					size, dev_name(dev));
+			return false;
+		}
+		sunxi_mapping = mapping;
+	} else
+		mapping = sunxi_mapping;
 
 	if (__arm_iommu_attach_device(dev, mapping)) {
 		pr_warn("Failed to attached device %s to IOMMU_mapping\n",
@@ -2320,6 +2327,7 @@ void arch_setup_dma_ops(struct device *dev, u64 dma_base, u64 size,
 #endif
 	dev->archdata.dma_ops_setup = true;
 }
+EXPORT_SYMBOL_GPL(arch_setup_dma_ops);
 
 void arch_teardown_dma_ops(struct device *dev)
 {
@@ -2366,3 +2374,4 @@ void arch_dma_free(struct device *dev, size_t size, void *cpu_addr,
 	__arm_dma_free(dev, size, cpu_addr, dma_handle, attrs, false);
 }
 #endif /* CONFIG_SWIOTLB */
+EXPORT_SYMBOL(v7_dma_flush_range);

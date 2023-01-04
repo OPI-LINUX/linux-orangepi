@@ -124,9 +124,6 @@ bool sun6i_csi_is_format_supported(struct sun6i_csi *csi,
 	case V4L2_PIX_FMT_VYUY:
 		return (mbus_code == MEDIA_BUS_FMT_VYUY8_2X8);
 
-	case V4L2_PIX_FMT_RGB555:
-		return mbus_code == MEDIA_BUS_FMT_RGB555_2X8_PADHI_LE;
-
 	case V4L2_PIX_FMT_HM12:
 	case V4L2_PIX_FMT_NV12:
 	case V4L2_PIX_FMT_NV21:
@@ -362,9 +359,6 @@ static enum csi_input_seq get_csi_input_seq(struct sun6i_csi_dev *sdev,
 		break;
 
 	case V4L2_PIX_FMT_YUYV:
-	case V4L2_PIX_FMT_YVYU:
-	case V4L2_PIX_FMT_UYVY:
-	case V4L2_PIX_FMT_VYUY:
 		return CSI_INPUT_SEQ_YUYV;
 
 	default:
@@ -515,8 +509,6 @@ static void sun6i_csi_set_window(struct sun6i_csi_dev *sdev)
 	case V4L2_PIX_FMT_YVYU:
 	case V4L2_PIX_FMT_UYVY:
 	case V4L2_PIX_FMT_VYUY:
-	case V4L2_PIX_FMT_RGB565:
-	case V4L2_PIX_FMT_RGB555:
 		dev_dbg(sdev->dev,
 			"Horizontal length should be 2 times of width for packed YUV formats!\n");
 		hor_len = width * 2;

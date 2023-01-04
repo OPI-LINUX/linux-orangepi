@@ -430,8 +430,6 @@ static SUNXI_CCU_GATE(bus_i2c3_clk,	"bus-i2c3",	"apb2",
  * In datasheet here's "Reserved", however the gate exists in BSP soucre
  * code.
  */
-static SUNXI_CCU_GATE(bus_can_clk,	"bus-can",	"apb2",
-		      0x06c, BIT(4), 0);
 static SUNXI_CCU_GATE(bus_scr_clk,	"bus-scr",	"apb2",
 		      0x06c, BIT(5), 0);
 static SUNXI_CCU_GATE(bus_ps20_clk,	"bus-ps20",	"apb2",
@@ -868,7 +866,6 @@ static struct ccu_common *sun8i_r40_ccu_clks[] = {
 	&bus_i2c1_clk.common,
 	&bus_i2c2_clk.common,
 	&bus_i2c3_clk.common,
-	&bus_can_clk.common,
 	&bus_scr_clk.common,
 	&bus_ps20_clk.common,
 	&bus_ps21_clk.common,
@@ -1071,7 +1068,6 @@ static struct clk_hw_onecell_data sun8i_r40_hw_clks = {
 		[CLK_BUS_I2C1]		= &bus_i2c1_clk.common.hw,
 		[CLK_BUS_I2C2]		= &bus_i2c2_clk.common.hw,
 		[CLK_BUS_I2C3]		= &bus_i2c3_clk.common.hw,
-		[CLK_BUS_CAN]		= &bus_can_clk.common.hw,
 		[CLK_BUS_SCR]		= &bus_scr_clk.common.hw,
 		[CLK_BUS_PS20]		= &bus_ps20_clk.common.hw,
 		[CLK_BUS_PS21]		= &bus_ps21_clk.common.hw,
@@ -1225,7 +1221,6 @@ static struct ccu_reset_map sun8i_r40_ccu_resets[] = {
 	[RST_BUS_I2C1]		=  { 0x2d8, BIT(1) },
 	[RST_BUS_I2C2]		=  { 0x2d8, BIT(2) },
 	[RST_BUS_I2C3]		=  { 0x2d8, BIT(3) },
-	[RST_BUS_CAN]		=  { 0x2d8, BIT(4) },
 	[RST_BUS_SCR]		=  { 0x2d8, BIT(5) },
 	[RST_BUS_PS20]		=  { 0x2d8, BIT(6) },
 	[RST_BUS_PS21]		=  { 0x2d8, BIT(7) },
