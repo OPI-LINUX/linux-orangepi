@@ -801,7 +801,7 @@ EXPORT_SYMBOL_GPL(usb_intf_get_dma_device);
  * is simple:
  *
  *	When locking both a device and its parent, always lock the
- *	the parent first.
+ *	parent first.
  */
 
 /**
@@ -998,7 +998,7 @@ static void usb_debugfs_init(void)
 
 static void usb_debugfs_cleanup(void)
 {
-	debugfs_remove(debugfs_lookup("devices", usb_debug_root));
+	debugfs_lookup_and_remove("devices", usb_debug_root);
 }
 
 /*

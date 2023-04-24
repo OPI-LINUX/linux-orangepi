@@ -181,7 +181,6 @@ static int sys_set_trip_temp(struct thermal_zone_device *tzd, int trip, int temp
 		cancel_delayed_work_sync(&pci_info->work);
 		proc_thermal_mmio_write(pci_info, PROC_THERMAL_MMIO_INT_ENABLE_0, 0);
 		proc_thermal_mmio_write(pci_info, PROC_THERMAL_MMIO_THRES_0, 0);
-		thermal_zone_device_disable(tzd);
 		pci_info->stored_thres = 0;
 		return 0;
 	}
@@ -194,7 +193,6 @@ static int sys_set_trip_temp(struct thermal_zone_device *tzd, int trip, int temp
 	proc_thermal_mmio_write(pci_info, PROC_THERMAL_MMIO_THRES_0, _temp);
 	proc_thermal_mmio_write(pci_info, PROC_THERMAL_MMIO_INT_ENABLE_0, 1);
 
-	thermal_zone_device_enable(tzd);
 	pci_info->stored_thres = temp;
 
 	return 0;
@@ -276,6 +274,10 @@ static int proc_thermal_pci_probe(struct pci_dev *pdev, const struct pci_device_
 		dev_err(&pdev->dev, "Request IRQ %d failed\n", pdev->irq);
 		goto err_free_vectors;
 	}
+
+	ret = thermal_zone_device_enable(pci_info->tzone);
+	if (ret)
+		goto err_free_vectors;
 
 	return 0;
 
@@ -373,18 +375,7 @@ static struct pci_driver proc_thermal_pci_driver = {
 	.driver.pm	= &proc_thermal_pci_pm,
 };
 
-static int __init proc_thermal_init(void)
-{
-	return pci_register_driver(&proc_thermal_pci_driver);
-}
-
-static void __exit proc_thermal_exit(void)
-{
-	pci_unregister_driver(&proc_thermal_pci_driver);
-}
-
-module_init(proc_thermal_init);
-module_exit(proc_thermal_exit);
+module_pci_driver(proc_thermal_pci_driver);
 
 MODULE_AUTHOR("Srinivas Pandruvada <srinivas.pandruvada@linux.intel.com>");
 MODULE_DESCRIPTION("Processor Thermal Reporting Device Driver");

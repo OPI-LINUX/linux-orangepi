@@ -20,10 +20,6 @@
 
 #define HDMI_CODEC_CHMAP_IDX_UNKNOWN  -1
 
-struct hdmi_codec_channel_map_table {
-	unsigned char map;	/* ALSA API channel map position */
-};
-
 /*
  * CEA speaker placement for HDMI 1.4:
  *
@@ -281,6 +277,18 @@ enum {
 	DAI_ID_SPDIF,
 };
 
+static int check_h616_quirk(void)
+{
+	struct device_node *dt_node;
+
+	dt_node = of_find_node_by_path("/soc/hdmi@6000000");
+	if (dt_node)
+		if (of_get_property(dt_node, "aw-hdmi-codec-quirk", NULL))
+			return 1;
+
+	return 0;
+}
+
 static int hdmi_eld_ctl_info(struct snd_kcontrol *kcontrol,
 			     struct snd_ctl_elem_info *uinfo)
 {
@@ -423,19 +431,29 @@ static int hdmi_codec_startup(struct snd_pcm_substream *substream,
 {
 	struct hdmi_codec_priv *hcp = snd_soc_dai_get_drvdata(dai);
 	bool tx = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
-	int ret = 0;
+	bool has_capture = !hcp->hcd.no_i2s_capture;
+	bool has_playback = !hcp->hcd.no_i2s_playback;
+	int ret = 0, aw_quirk = 0;
 
-	mutex_lock(&hcp->lock);
-	if (hcp->busy) {
-		dev_err(dai->dev, "Only one simultaneous stream supported!\n");
-		mutex_unlock(&hcp->lock);
-		return -EINVAL;
-	}
+	if (!((has_playback && tx) || (has_capture && !tx)))
+		return 0;
 
-	if (hcp->hcd.ops->audio_startup) {
-		ret = hcp->hcd.ops->audio_startup(dai->dev->parent, hcp->hcd.data);
-		if (ret)
-			goto err;
+	aw_quirk = check_h616_quirk();
+	if (aw_quirk)
+		printk("hdmi_codec_startup: using aw-hdmi-codec-quirk for H616\n");
+	else {
+		mutex_lock(&hcp->lock);
+		if (hcp->busy) {
+			dev_err(dai->dev, "Only one simultaneous stream supported!\n");
+			mutex_unlock(&hcp->lock);
+			return -EINVAL;
+		}
+
+		if (hcp->hcd.ops->audio_startup) {
+			ret = hcp->hcd.ops->audio_startup(dai->dev->parent, hcp->hcd.data);
+			if (ret)
+				goto err;
+		}
 	}
 
 	if (tx && hcp->hcd.ops->get_eld) {
@@ -463,13 +481,25 @@ static void hdmi_codec_shutdown(struct snd_pcm_substream *substream,
 				struct snd_soc_dai *dai)
 {
 	struct hdmi_codec_priv *hcp = snd_soc_dai_get_drvdata(dai);
+	bool tx = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
+	bool has_capture = !hcp->hcd.no_i2s_capture;
+	bool has_playback = !hcp->hcd.no_i2s_playback;
+	int aw_quirk = 0;
 
-	hcp->chmap_idx = HDMI_CODEC_CHMAP_IDX_UNKNOWN;
-	hcp->hcd.ops->audio_shutdown(dai->dev->parent, hcp->hcd.data);
+	if (!((has_playback && tx) || (has_capture && !tx)))
+		return;
 
-	mutex_lock(&hcp->lock);
-	hcp->busy = false;
-	mutex_unlock(&hcp->lock);
+	aw_quirk = check_h616_quirk();
+	if (aw_quirk)
+		printk("hdmi_codec_shutdown: using aw-hdmi-codec-quirk for H616\n");
+	else {
+		hcp->chmap_idx = HDMI_CODEC_CHMAP_IDX_UNKNOWN;
+		hcp->hcd.ops->audio_shutdown(dai->dev->parent, hcp->hcd.data);
+
+		mutex_lock(&hcp->lock);
+		hcp->busy = false;
+		mutex_unlock(&hcp->lock);
+	}
 }
 
 static int hdmi_codec_fill_codec_params(struct snd_soc_dai *dai,
@@ -597,18 +627,18 @@ static int hdmi_codec_i2s_set_fmt(struct snd_soc_dai *dai,
 	/* Reset daifmt */
 	memset(cf, 0, sizeof(*cf));
 
-	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBM_CFM:
-		cf->bit_clk_master = 1;
-		cf->frame_clk_master = 1;
+	switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
+	case SND_SOC_DAIFMT_CBP_CFP:
+		cf->bit_clk_provider = 1;
+		cf->frame_clk_provider = 1;
 		break;
-	case SND_SOC_DAIFMT_CBS_CFM:
-		cf->frame_clk_master = 1;
+	case SND_SOC_DAIFMT_CBC_CFP:
+		cf->frame_clk_provider = 1;
 		break;
-	case SND_SOC_DAIFMT_CBM_CFS:
-		cf->bit_clk_master = 1;
+	case SND_SOC_DAIFMT_CBP_CFC:
+		cf->bit_clk_provider = 1;
 		break;
-	case SND_SOC_DAIFMT_CBS_CFS:
+	case SND_SOC_DAIFMT_CBC_CFC:
 		break;
 	default:
 		return -EINVAL;
@@ -811,14 +841,21 @@ static int hdmi_dai_probe(struct snd_soc_dai *dai)
 			.source = "RX",
 		},
 	};
-	int ret;
+	int ret, i;
 
 	dapm = snd_soc_component_get_dapm(dai->component);
-	ret = snd_soc_dapm_add_routes(dapm, route, 2);
-	if (ret)
-		return ret;
 
-	daifmt = kzalloc(sizeof(*daifmt), GFP_KERNEL);
+	/* One of the directions might be omitted for unidirectional DAIs */
+	for (i = 0; i < ARRAY_SIZE(route); i++) {
+		if (!route[i].source || !route[i].sink)
+			continue;
+
+		ret = snd_soc_dapm_add_routes(dapm, &route[i], 1);
+		if (ret)
+			return ret;
+	}
+
+	daifmt = devm_kzalloc(dai->dev, sizeof(*daifmt), GFP_KERNEL);
 	if (!daifmt)
 		return -ENOMEM;
 
@@ -885,17 +922,10 @@ static int hdmi_dai_spdif_probe(struct snd_soc_dai *dai)
 	return 0;
 }
 
-static int hdmi_codec_dai_remove(struct snd_soc_dai *dai)
-{
-	kfree(dai->playback_dma_data);
-	return 0;
-}
-
 static const struct snd_soc_dai_driver hdmi_i2s_dai = {
 	.name = "i2s-hifi",
 	.id = DAI_ID_I2S,
 	.probe = hdmi_dai_probe,
-	.remove = hdmi_codec_dai_remove,
 	.playback = {
 		.stream_name = "I2S Playback",
 		.channels_min = 2,
@@ -920,7 +950,6 @@ static const struct snd_soc_dai_driver hdmi_spdif_dai = {
 	.name = "spdif-hifi",
 	.id = DAI_ID_SPDIF,
 	.probe = hdmi_dai_spdif_probe,
-	.remove = hdmi_codec_dai_remove,
 	.playback = {
 		.stream_name = "SPDIF Playback",
 		.channels_min = 2,
@@ -968,7 +997,6 @@ static const struct snd_soc_component_driver hdmi_driver = {
 	.idle_bias_on		= 1,
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
-	.non_legacy_dai_naming	= 1,
 	.set_jack		= hdmi_codec_set_jack,
 };
 
@@ -978,7 +1006,7 @@ static int hdmi_codec_probe(struct platform_device *pdev)
 	struct snd_soc_dai_driver *daidrv;
 	struct device *dev = &pdev->dev;
 	struct hdmi_codec_priv *hcp;
-	int dai_count, i = 0;
+	int dai_count, i = 0, aw_quirk = 0;
 	int ret;
 
 	if (!hcd) {
@@ -1013,11 +1041,24 @@ static int hdmi_codec_probe(struct platform_device *pdev)
 	if (hcd->i2s) {
 		daidrv[i] = hdmi_i2s_dai;
 		daidrv[i].playback.channels_max = hcd->max_i2s_channels;
+		if (hcd->no_i2s_playback)
+			memset(&daidrv[i].playback, 0,
+			       sizeof(daidrv[i].playback));
+		if (hcd->no_i2s_capture)
+			memset(&daidrv[i].capture, 0,
+			       sizeof(daidrv[i].capture));
 		i++;
 	}
 
-	if (hcd->spdif)
+	if (hcd->spdif) {
 		daidrv[i] = hdmi_spdif_dai;
+		if (hcd->no_spdif_playback)
+			memset(&daidrv[i].playback, 0,
+			       sizeof(daidrv[i].playback));
+		if (hcd->no_spdif_capture)
+			memset(&daidrv[i].capture, 0,
+			       sizeof(daidrv[i].capture));
+	}
 
 	dev_set_drvdata(dev, hcp);
 
@@ -1028,6 +1069,18 @@ static int hdmi_codec_probe(struct platform_device *pdev)
 			__func__, ret);
 		return ret;
 	}
+
+	aw_quirk = check_h616_quirk();
+
+	if (aw_quirk) {
+		printk("hdmi_codec_probe: using aw-hdmi-codec-quirk for H616\n");
+		if (hcp->hcd.ops->audio_startup) {
+			ret = hcp->hcd.ops->audio_startup(dev, hcp->hcd.data);
+			if (ret)
+				return 0;
+		}
+	}
+
 	return 0;
 }
 

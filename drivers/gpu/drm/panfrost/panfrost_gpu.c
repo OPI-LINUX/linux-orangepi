@@ -7,7 +7,9 @@
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
+#include <linux/reset.h>
 #include <linux/io.h>
+#include <linux/of.h>
 #include <linux/iopoll.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
@@ -60,7 +62,17 @@ int panfrost_gpu_soft_reset(struct panfrost_device *pfdev)
 
 	gpu_write(pfdev, GPU_INT_MASK, 0);
 	gpu_write(pfdev, GPU_INT_CLEAR, GPU_IRQ_RESET_COMPLETED);
-	gpu_write(pfdev, GPU_CMD, GPU_CMD_SOFT_RESET);
+
+	if (of_device_is_compatible(pfdev->dev->of_node, "amlogic,meson-gxm-mali") ||
+	    of_device_is_compatible(pfdev->dev->of_node, "amlogic,meson-g12a-mali")) {
+		reset_control_assert(pfdev->rstc);
+		udelay(10);
+		reset_control_deassert(pfdev->rstc);
+
+		gpu_write(pfdev, GPU_PWR_KEY, 0x2968A819);
+		gpu_write(pfdev, GPU_PWR_OVERRIDE1, 0xfff | (0x20 << 16));
+	} else
+		gpu_write(pfdev, GPU_CMD, GPU_CMD_SOFT_RESET);
 
 	ret = readl_relaxed_poll_timeout(pfdev->iomem + GPU_INT_RAWSTAT,
 		val, val & GPU_IRQ_RESET_COMPLETED, 100, 10000);
@@ -108,6 +120,9 @@ static void panfrost_gpu_init_quirks(struct panfrost_device *pfdev)
 			quirks |= SC_LS_ALLOW_ATTR_TYPES;
 	}
 
+	if (panfrost_has_hw_issue(pfdev, HW_ISSUE_TTRX_2968_TTRX_3162))
+		quirks |= SC_VAR_ALGORITHM;
+
 	if (panfrost_has_hw_feature(pfdev, HW_FEATURE_TLS_HASHING))
 		quirks |= SC_TLS_HASH_ENABLE;
 
@@ -123,18 +138,6 @@ static void panfrost_gpu_init_quirks(struct panfrost_device *pfdev)
 
 	gpu_write(pfdev, GPU_TILER_CONFIG, quirks);
 
-
-	quirks = gpu_read(pfdev, GPU_L2_MMU_CONFIG);
-
-	/* Limit read & write ID width for AXI */
-	if (panfrost_has_hw_feature(pfdev, HW_FEATURE_3BIT_EXT_RW_L2_MMU_CONFIG))
-		quirks &= ~(L2_MMU_CONFIG_3BIT_LIMIT_EXTERNAL_READS |
-			    L2_MMU_CONFIG_3BIT_LIMIT_EXTERNAL_WRITES);
-	else
-		quirks &= ~(L2_MMU_CONFIG_LIMIT_EXTERNAL_READS |
-			    L2_MMU_CONFIG_LIMIT_EXTERNAL_WRITES);
-
-	gpu_write(pfdev, GPU_L2_MMU_CONFIG, quirks);
 
 	quirks = 0;
 	if ((panfrost_model_eq(pfdev, 0x860) || panfrost_model_eq(pfdev, 0x880)) &&
@@ -210,6 +213,9 @@ static const struct panfrost_model gpu_models[] = {
 	GPU_MODEL(g52, 0x7002),
 	GPU_MODEL(g31, 0x7003,
 		GPU_REV(g31, 1, 0)),
+
+	GPU_MODEL(g57, 0x9001,
+		GPU_REV(g57, 0, 0)),
 };
 
 static void panfrost_gpu_init_features(struct panfrost_device *pfdev)

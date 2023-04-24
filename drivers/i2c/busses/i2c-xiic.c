@@ -367,7 +367,7 @@ static void xiic_fill_tx_fifo(struct xiic_i2c *i2c)
 	}
 }
 
-static void xiic_wakeup(struct xiic_i2c *i2c, int code)
+static void xiic_wakeup(struct xiic_i2c *i2c, enum xilinx_i2c_state code)
 {
 	i2c->tx_msg = NULL;
 	i2c->rx_msg = NULL;
@@ -383,7 +383,7 @@ static irqreturn_t xiic_process(int irq, void *dev_id)
 	u32 clr = 0;
 	int xfer_more = 0;
 	int wakeup_req = 0;
-	int wakeup_code = 0;
+	enum xilinx_i2c_state wakeup_code = STATE_DONE;
 	int ret;
 
 	/* Get the interrupt Status from the IPIF. There is no clearing of
@@ -858,11 +858,14 @@ static int xiic_i2c_remove(struct platform_device *pdev)
 	/* remove adapter & data */
 	i2c_del_adapter(&i2c->adap);
 
-	ret = pm_runtime_resume_and_get(i2c->dev);
-	if (ret < 0)
-		return ret;
+	ret = pm_runtime_get_sync(i2c->dev);
 
-	xiic_deinit(i2c);
+	if (ret < 0)
+		dev_warn(&pdev->dev, "Failed to activate device for removal (%pe)\n",
+			 ERR_PTR(ret));
+	else
+		xiic_deinit(i2c);
+
 	pm_runtime_put_sync(i2c->dev);
 	clk_disable_unprepare(i2c->clk);
 	pm_runtime_disable(&pdev->dev);
@@ -920,6 +923,7 @@ static struct platform_driver xiic_i2c_driver = {
 
 module_platform_driver(xiic_i2c_driver);
 
+MODULE_ALIAS("platform:" DRIVER_NAME);
 MODULE_AUTHOR("info@mocean-labs.com");
 MODULE_DESCRIPTION("Xilinx I2C bus driver");
 MODULE_LICENSE("GPL v2");

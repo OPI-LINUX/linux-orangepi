@@ -111,6 +111,7 @@ int lima_devfreq_init(struct lima_device *ldev)
 	struct dev_pm_opp *opp;
 	unsigned long cur_freq;
 	int ret;
+	const char *regulator_names[] = { "mali", NULL };
 
 	if (!device_property_present(dev, "operating-points-v2"))
 		/* Optional, continue without devfreq */
@@ -118,11 +119,15 @@ int lima_devfreq_init(struct lima_device *ldev)
 
 	spin_lock_init(&ldevfreq->lock);
 
+	/*
+	 * clkname is set separately so it is not affected by the optional
+	 * regulator setting which may return error.
+	 */
 	ret = devm_pm_opp_set_clkname(dev, "core");
 	if (ret)
 		return ret;
 
-	ret = devm_pm_opp_set_regulators(dev, (const char *[]){ "mali" }, 1);
+	ret = devm_pm_opp_set_regulators(dev, regulator_names);
 	if (ret) {
 		/* Continue if the optional regulator is missing */
 		if (ret != -ENODEV)
@@ -152,7 +157,7 @@ int lima_devfreq_init(struct lima_device *ldev)
 	ldevfreq->gov_data.downdifferential = 5;
 
 	devfreq = devm_devfreq_add_device(dev, &lima_devfreq_profile,
-					  DEVFREQ_GOV_SIMPLE_ONDEMAND,
+					  DEVFREQ_GOV_PERFORMANCE,
 					  &ldevfreq->gov_data);
 	if (IS_ERR(devfreq)) {
 		dev_err(dev, "Couldn't initialize GPU devfreq\n");

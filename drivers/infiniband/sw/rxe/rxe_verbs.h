@@ -9,7 +9,6 @@
 
 #include <linux/interrupt.h>
 #include <linux/workqueue.h>
-#include <rdma/rdma_user_rxe.h>
 #include "rxe_pool.h"
 #include "rxe_task.h"
 #include "rxe_hw_counters.h"
@@ -124,11 +123,13 @@ struct rxe_req_info {
 	int			need_rd_atomic;
 	int			wait_psn;
 	int			need_retry;
+	int			wait_for_rnr_timer;
 	int			noack_pkts;
 	struct rxe_task		task;
 };
 
 struct rxe_comp_info {
+	enum rxe_qp_state	state;
 	u32			psn;
 	int			opcode;
 	int			timeout;
@@ -155,7 +156,7 @@ struct resp_res {
 
 	union {
 		struct {
-			struct sk_buff	*skb;
+			u64		orig_val;
 		} atomic;
 		struct {
 			u64		va_org;
@@ -164,6 +165,12 @@ struct resp_res {
 			u64		va;
 			u32		resid;
 		} read;
+		struct {
+			u32		length;
+			u64		va;
+			u8		type;
+			u8		level;
+		} flush;
 	};
 };
 
@@ -189,7 +196,6 @@ struct rxe_resp_info {
 	u32			resid;
 	u32			rkey;
 	u32			length;
-	u64			atomic_orig;
 
 	/* SRQ only */
 	struct {
@@ -277,28 +283,6 @@ enum rxe_mr_lookup_type {
 	RXE_LOOKUP_REMOTE,
 };
 
-#define RXE_BUF_PER_MAP		(PAGE_SIZE / sizeof(struct rxe_phys_buf))
-
-struct rxe_phys_buf {
-	u64      addr;
-	u64      size;
-};
-
-struct rxe_map {
-	struct rxe_phys_buf	buf[RXE_BUF_PER_MAP];
-};
-
-struct rxe_map_set {
-	struct rxe_map		**map;
-	u64			va;
-	u64			iova;
-	size_t			length;
-	u32			offset;
-	u32			nbuf;
-	int			page_shift;
-	int			page_mask;
-};
-
 static inline int rkey_is_mw(u32 rkey)
 {
 	u32 index = rkey >> 8;
@@ -315,22 +299,23 @@ struct rxe_mr {
 	u32			lkey;
 	u32			rkey;
 	enum rxe_mr_state	state;
-	enum ib_mr_type		type;
 	int			access;
-
-	int			map_shift;
-	int			map_mask;
-
-	u32			num_buf;
-
-	u32			max_buf;
-	u32			num_map;
-
 	atomic_t		num_mw;
 
-	struct rxe_map_set	*cur_map_set;
-	struct rxe_map_set	*next_map_set;
+	unsigned int		page_offset;
+	unsigned int		page_shift;
+	u64			page_mask;
+
+	u32			num_buf;
+	u32			nbuf;
+
+	struct xarray		page_list;
 };
+
+static inline unsigned int mr_page_size(struct rxe_mr *mr)
+{
+	return mr ? mr->ibmr.page_size : PAGE_SIZE;
+}
 
 enum rxe_mw_state {
 	RXE_MW_STATE_INVALID	= RXE_MR_STATE_INVALID,

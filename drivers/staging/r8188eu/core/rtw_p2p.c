@@ -1450,11 +1450,10 @@ static void restore_p2p_state_handler(struct adapter *padapter)
 static void pre_tx_invitereq_handler(struct adapter *padapter)
 {
 	struct wifidirect_info  *pwdinfo = &padapter->wdinfo;
-	u8	val8 = 1;
 
 	set_channel_bwmode(padapter, pwdinfo->invitereq_info.peer_ch, HAL_PRIME_CHNL_OFFSET_DONT_CARE, HT_CHANNEL_WIDTH_20);
-	SetHwReg8188EU(padapter, HW_VAR_MLME_SITESURVEY, (u8 *)(&val8));
-	issue_probereq_p2p(padapter, NULL);
+	rtw_mlme_under_site_survey(padapter);
+	issue_probereq_p2p(padapter);
 	_set_timer(&pwdinfo->pre_tx_scan_timer, P2P_TX_PRESCAN_TIMEOUT);
 
 }
@@ -1462,11 +1461,10 @@ static void pre_tx_invitereq_handler(struct adapter *padapter)
 static void pre_tx_provdisc_handler(struct adapter *padapter)
 {
 	struct wifidirect_info  *pwdinfo = &padapter->wdinfo;
-	u8	val8 = 1;
 
 	set_channel_bwmode(padapter, pwdinfo->tx_prov_disc_info.peer_channel_num[0], HAL_PRIME_CHNL_OFFSET_DONT_CARE, HT_CHANNEL_WIDTH_20);
-	SetHwReg8188EU(padapter, HW_VAR_MLME_SITESURVEY, (u8 *)(&val8));
-	issue_probereq_p2p(padapter, NULL);
+	rtw_mlme_under_site_survey(padapter);
+	issue_probereq_p2p(padapter);
 	_set_timer(&pwdinfo->pre_tx_scan_timer, P2P_TX_PRESCAN_TIMEOUT);
 
 }
@@ -1474,11 +1472,10 @@ static void pre_tx_provdisc_handler(struct adapter *padapter)
 static void pre_tx_negoreq_handler(struct adapter *padapter)
 {
 	struct wifidirect_info  *pwdinfo = &padapter->wdinfo;
-	u8	val8 = 1;
 
 	set_channel_bwmode(padapter, pwdinfo->nego_req_info.peer_channel_num[0], HAL_PRIME_CHNL_OFFSET_DONT_CARE, HT_CHANNEL_WIDTH_20);
-	SetHwReg8188EU(padapter, HW_VAR_MLME_SITESURVEY, (u8 *)(&val8));
-	issue_probereq_p2p(padapter, NULL);
+	rtw_mlme_under_site_survey(padapter);
+	issue_probereq_p2p(padapter);
 	_set_timer(&pwdinfo->pre_tx_scan_timer, P2P_TX_PRESCAN_TIMEOUT);
 
 }
@@ -1508,8 +1505,6 @@ void p2p_protocol_wk_hdl(struct adapter *padapter, int intCmdType)
 
 void process_p2p_ps_ie(struct adapter *padapter, u8 *IEs, u32 IELength)
 {
-	u8 *ies;
-	u32 ies_len;
 	u8 *p2p_ie;
 	u32	p2p_ielen = 0;
 	u8	noa_attr[MAX_P2P_IE_LEN] = { 0x00 };/*  NoA length should be n*(13) + 2 */
@@ -1521,13 +1516,8 @@ void process_p2p_ps_ie(struct adapter *padapter, u8 *IEs, u32 IELength)
 
 	if (rtw_p2p_chk_state(pwdinfo, P2P_STATE_NONE))
 		return;
-	if (IELength <= _BEACON_IE_OFFSET_)
-		return;
 
-	ies = IEs + _BEACON_IE_OFFSET_;
-	ies_len = IELength - _BEACON_IE_OFFSET_;
-
-	p2p_ie = rtw_get_p2p_ie(ies, ies_len, NULL, &p2p_ielen);
+	p2p_ie = rtw_get_p2p_ie(IEs, IELength, NULL, &p2p_ielen);
 
 	while (p2p_ie) {
 		find_p2p = true;
@@ -1582,7 +1572,7 @@ void process_p2p_ps_ie(struct adapter *padapter, u8 *IEs, u32 IELength)
 		}
 
 		/* Get the next P2P IE */
-		p2p_ie = rtw_get_p2p_ie(p2p_ie + p2p_ielen, ies_len - (p2p_ie - ies + p2p_ielen), NULL, &p2p_ielen);
+		p2p_ie = rtw_get_p2p_ie(p2p_ie + p2p_ielen, IELength - (p2p_ie - IEs + p2p_ielen), NULL, &p2p_ielen);
 	}
 
 	if (find_p2p) {
@@ -1735,7 +1725,7 @@ static void pre_tx_scan_timer_process(struct timer_list *t)
 	if (rtw_p2p_chk_state(pwdinfo, P2P_STATE_TX_PROVISION_DIS_REQ)) {
 		if (pwdinfo->tx_prov_disc_info.benable) {	/*	the provision discovery request frame is trigger to send or not */
 			p2p_protocol_wk_cmd(adapter, P2P_PRE_TX_PROVDISC_PROCESS_WK);
-			/* issue_probereq_p2p(adapter, NULL); */
+			/* issue_probereq_p2p(adapter); */
 			/* _set_timer(&pwdinfo->pre_tx_scan_timer, P2P_TX_PRESCAN_TIMEOUT); */
 		}
 	} else if (rtw_p2p_chk_state(pwdinfo, P2P_STATE_GONEGO_ING)) {
@@ -1886,15 +1876,14 @@ void init_wifidirect_info(struct adapter *padapter, enum P2P_ROLE role)
 
 int rtw_p2p_enable(struct adapter *padapter, enum P2P_ROLE role)
 {
-	int ret = _SUCCESS;
+	int ret;
 	struct wifidirect_info *pwdinfo = &padapter->wdinfo;
 
 	if (role == P2P_ROLE_DEVICE || role == P2P_ROLE_CLIENT || role == P2P_ROLE_GO) {
 		/* leave IPS/Autosuspend */
-		if (rtw_pwr_wakeup(padapter) == _FAIL) {
-			ret = _FAIL;
-			goto exit;
-		}
+		ret = rtw_pwr_wakeup(padapter);
+		if (ret)
+			return ret;
 
 		/*	Added by Albert 2011/03/22 */
 		/*	In the P2P mode, the driver should not support the b mode. */
@@ -1905,10 +1894,9 @@ int rtw_p2p_enable(struct adapter *padapter, enum P2P_ROLE role)
 		init_wifidirect_info(padapter, role);
 
 	} else if (role == P2P_ROLE_DISABLE) {
-		if (rtw_pwr_wakeup(padapter) == _FAIL) {
-			ret = _FAIL;
-			goto exit;
-		}
+		ret = rtw_pwr_wakeup(padapter);
+		if (ret)
+			return ret;
 
 		/* Disable P2P function */
 		if (!rtw_p2p_chk_state(pwdinfo, P2P_STATE_NONE)) {
@@ -1926,6 +1914,5 @@ int rtw_p2p_enable(struct adapter *padapter, enum P2P_ROLE role)
 		update_tx_basic_rate(padapter, padapter->registrypriv.wireless_mode);
 	}
 
-exit:
-	return ret;
+	return 0;
 }

@@ -687,12 +687,9 @@ static int rtw_wx_set_mode(struct net_device *dev, struct iw_request_info *a,
 	enum ndis_802_11_network_infra networkType;
 	int ret = 0;
 
-
-
-	if (_FAIL == rtw_pwr_wakeup(padapter)) {
-		ret = -EPERM;
+	ret = rtw_pwr_wakeup(padapter);
+	if (ret)
 		goto exit;
-	}
 
 	if (!padapter->hw_init_completed) {
 		ret = -EPERM;
@@ -931,12 +928,9 @@ static int rtw_wx_set_wap(struct net_device *dev,
 	struct	wlan_network	*pnetwork = NULL;
 	enum ndis_802_11_auth_mode	authmode;
 
-
-
-	if (_FAIL == rtw_pwr_wakeup(padapter)) {
-		ret = -1;
+	ret = rtw_pwr_wakeup(padapter);
+	if (ret)
 		goto exit;
-	}
 
 	if (!padapter->bup) {
 		ret = -1;
@@ -1017,7 +1011,6 @@ static int rtw_wx_set_mlme(struct net_device *dev,
 			     struct iw_request_info *info,
 			     union iwreq_data *wrqu, char *extra)
 {
-	int ret = 0;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
 	struct iw_mlme *mlme = (struct iw_mlme *)extra;
 
@@ -1026,17 +1019,15 @@ static int rtw_wx_set_mlme(struct net_device *dev,
 
 	switch (mlme->cmd) {
 	case IW_MLME_DEAUTH:
-		if (!rtw_set_802_11_disassociate(padapter))
-			ret = -1;
+		rtw_set_802_11_disassociate(padapter);
 		break;
 	case IW_MLME_DISASSOC:
-		if (!rtw_set_802_11_disassociate(padapter))
-			ret = -1;
+		rtw_set_802_11_disassociate(padapter);
 		break;
 	default:
 		return -EOPNOTSUPP;
 	}
-	return ret;
+	return 0;
 }
 
 static int rtw_wx_set_scan(struct net_device *dev, struct iw_request_info *a,
@@ -1049,10 +1040,9 @@ static int rtw_wx_set_scan(struct net_device *dev, struct iw_request_info *a,
 	struct ndis_802_11_ssid ssid[RTW_SSID_SCAN_AMOUNT];
 	struct wifidirect_info *pwdinfo = &padapter->wdinfo;
 
-	if (_FAIL == rtw_pwr_wakeup(padapter)) {
-		ret = -1;
+	ret = rtw_pwr_wakeup(padapter);
+	if (ret)
 		goto exit;
-	}
 
 	if (padapter->bDriverStopped) {
 		ret = -1;
@@ -1106,7 +1096,7 @@ static int rtw_wx_set_scan(struct net_device *dev, struct iw_request_info *a,
 
 			spin_lock_bh(&pmlmepriv->lock);
 
-			_status = rtw_sitesurvey_cmd(padapter, ssid, 1, NULL, 0);
+			_status = rtw_sitesurvey_cmd(padapter, ssid, 1);
 
 			spin_unlock_bh(&pmlmepriv->lock);
 		}
@@ -1252,10 +1242,9 @@ static int rtw_wx_set_essid(struct net_device *dev,
 
 	uint ret = 0, len;
 
-	if (_FAIL == rtw_pwr_wakeup(padapter)) {
-		ret = -1;
+	ret = rtw_pwr_wakeup(padapter);
+	if (ret)
 		goto exit;
-	}
 
 	if (!padapter->bup) {
 		ret = -1;
@@ -1348,7 +1337,7 @@ static int rtw_wx_set_rate(struct net_device *dev,
 			      struct iw_request_info *a,
 			      union iwreq_data *wrqu, char *extra)
 {
-	int i, ret = 0;
+	int i;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
 	u8 datarates[NumRates];
 	u32	target_rate = wrqu->bitrate.value;
@@ -1416,10 +1405,7 @@ set_rate:
 		}
 	}
 
-	if (rtw_setdatarate_cmd(padapter, datarates) != _SUCCESS)
-		ret = -1;
-
-	return ret;
+	return rtw_setdatarate_cmd(padapter, datarates);
 }
 
 static int rtw_wx_get_rate(struct net_device *dev,
@@ -1593,7 +1579,7 @@ static int rtw_wx_set_enc(struct net_device *dev,
 	if (erq->length > 0) {
 		wep.KeyLength = erq->length <= 5 ? 5 : 13;
 
-		wep.Length = wep.KeyLength + FIELD_OFFSET(struct ndis_802_11_wep, KeyMaterial);
+		wep.Length = wep.KeyLength + offsetof(struct ndis_802_11_wep, KeyMaterial);
 	} else {
 		wep.KeyLength = 0;
 
@@ -1844,7 +1830,7 @@ static int rtw_wx_set_enc_ext(struct net_device *dev,
 		goto out;
 	}
 
-	strlcpy((char *)param->u.crypt.alg, alg_name, IEEE_CRYPT_ALG_NAME_LEN);
+	strscpy((char *)param->u.crypt.alg, alg_name, IEEE_CRYPT_ALG_NAME_LEN);
 
 	if (pext->ext_flags & IW_ENCODE_EXT_SET_TX_KEY)
 		param->u.crypt.set_tx = 1;
@@ -2087,7 +2073,7 @@ static int rtw_wext_p2p_enable(struct net_device *dev,
 			       struct iw_request_info *info,
 			       union iwreq_data *wrqu, char *extra)
 {
-	int ret = 0;
+	int ret;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
 	struct wifidirect_info *pwdinfo = &padapter->wdinfo;
 	struct mlme_ext_priv	*pmlmeext = &padapter->mlmeextpriv;
@@ -2102,10 +2088,9 @@ static int rtw_wext_p2p_enable(struct net_device *dev,
 	else if (*extra == '3')
 		init_role = P2P_ROLE_GO;
 
-	if (_FAIL == rtw_p2p_enable(padapter, init_role)) {
-		ret = -EFAULT;
-		goto exit;
-	}
+	ret = rtw_p2p_enable(padapter, init_role);
+	if (ret)
+		return ret;
 
 	/* set channel/bandwidth */
 	if (init_role != P2P_ROLE_DISABLE) {
@@ -2129,8 +2114,7 @@ static int rtw_wext_p2p_enable(struct net_device *dev,
 		set_channel_bwmode(padapter, channel, ch_offset, bwmode);
 	}
 
-exit:
-	return ret;
+	return 0;
 }
 
 static void rtw_p2p_set_go_nego_ssid(struct net_device *dev,
@@ -2657,7 +2641,7 @@ static int rtw_p2p_connect(struct net_device *dev,
 	u32 peer_channel = 0;
 
 	/*	Commented by Albert 20110304 */
-	/*	The input data contains two informations. */
+	/*	The input data contains two information. */
 	/*	1. First information is the MAC address which wants to formate with */
 	/*	2. Second information is the WPS PINCode or "pbc" string for push button method */
 	/*	Format: 00:E0:4C:00:00:05 */
@@ -2731,7 +2715,7 @@ static void rtw_p2p_invite_req(struct net_device *dev,
 	uint p2pielen = 0, attr_contentlen = 0;
 	struct tx_invite_req_info *pinvite_req_info = &pwdinfo->invitereq_info;
 
-	/*	The input data contains two informations. */
+	/*	The input data contains two information items. */
 	/*	1. First information is the P2P device address which you want to send to. */
 	/*	2. Second information is the group id which combines with GO's mac address, space and GO's ssid. */
 	/*	Command line sample: iwpriv wlan0 p2p_set invite ="00:11:22:33:44:55 00:E0:4C:00:00:05 DIRECT-xy" */
@@ -2855,7 +2839,7 @@ static void rtw_p2p_prov_disc(struct net_device *dev,
 	u8 *p2pie;
 	uint p2pielen = 0, attr_contentlen = 0;
 
-	/*	The input data contains two informations. */
+	/*	The input data contains two information items. */
 	/*	1. First information is the MAC address which wants to issue the provisioning discovery request frame. */
 	/*	2. Second information is the WPS configuration method which wants to discovery */
 	/*	Format: 00:E0:4C:00:00:05_display */
@@ -2989,8 +2973,6 @@ static int rtw_p2p_set(struct net_device *dev,
 			       struct iw_request_info *info,
 			       union iwreq_data *wrqu, char *extra)
 {
-	int ret = 0;
-
 	if (!memcmp(extra, "enable =", 7)) {
 		rtw_wext_p2p_enable(dev, info, wrqu, &extra[7]);
 	} else if (!memcmp(extra, "setDN =", 6)) {
@@ -3037,7 +3019,7 @@ static int rtw_p2p_set(struct net_device *dev,
 		rtw_p2p_set_persistent(dev, info, wrqu, &extra[11]);
 	}
 
-	return ret;
+	return 0;
 }
 
 static int rtw_p2p_get2(struct net_device *dev,
@@ -3126,18 +3108,29 @@ exit:
 static void mac_reg_dump(struct adapter *padapter)
 {
 	int i, j = 1;
+	u32 reg;
+	int res;
+
 	pr_info("\n ======= MAC REG =======\n");
 	for (i = 0x0; i < 0x300; i += 4) {
 		if (j % 4 == 1)
 			pr_info("0x%02x", i);
-		pr_info(" 0x%08x ", rtw_read32(padapter, i));
+
+		res = rtw_read32(padapter, i, &reg);
+		if (!res)
+			pr_info(" 0x%08x ", reg);
+
 		if ((j++) % 4 == 0)
 			pr_info("\n");
 	}
 	for (i = 0x400; i < 0x800; i += 4) {
 		if (j % 4 == 1)
 			pr_info("0x%02x", i);
-		pr_info(" 0x%08x ", rtw_read32(padapter, i));
+
+		res = rtw_read32(padapter, i, &reg);
+		if (!res)
+			pr_info(" 0x%08x ", reg);
+
 		if ((j++) % 4 == 0)
 			pr_info("\n");
 	}
@@ -3145,13 +3138,18 @@ static void mac_reg_dump(struct adapter *padapter)
 
 static void bb_reg_dump(struct adapter *padapter)
 {
-	int i, j = 1;
+	int i, j = 1, res;
+	u32 reg;
+
 	pr_info("\n ======= BB REG =======\n");
 	for (i = 0x800; i < 0x1000; i += 4) {
 		if (j % 4 == 1)
 			pr_info("0x%02x", i);
 
-		pr_info(" 0x%08x ", rtw_read32(padapter, i));
+		res = rtw_read32(padapter, i, &reg);
+		if (!res)
+			pr_info(" 0x%08x ", reg);
+
 		if ((j++) % 4 == 0)
 			pr_info("\n");
 	}
@@ -3178,6 +3176,7 @@ static void rtw_set_dynamic_functions(struct adapter *adapter, u8 dm_func)
 {
 	struct hal_data_8188e *haldata = &adapter->haldata;
 	struct odm_dm_struct *odmpriv = &haldata->odmpriv;
+	int res;
 
 	switch (dm_func) {
 	case 0:
@@ -3193,13 +3192,23 @@ static void rtw_set_dynamic_functions(struct adapter *adapter, u8 dm_func)
 		if (!(odmpriv->SupportAbility & DYNAMIC_BB_DIG)) {
 			struct rtw_dig *digtable = &odmpriv->DM_DigTable;
 
-			digtable->CurIGValue = rtw_read8(adapter, 0xc50);
+			res = rtw_read8(adapter, 0xc50, &digtable->CurIGValue);
+			(void)res;
+			/* FIXME: return an error to caller */
 		}
 		odmpriv->SupportAbility = DYNAMIC_ALL_FUNC_ENABLE;
 		break;
 	default:
 		break;
 	}
+}
+
+static void rtw_set_dm_func_flag(struct adapter *adapter, u32 odm_flag)
+{
+	struct hal_data_8188e *haldata = &adapter->haldata;
+	struct odm_dm_struct *odmpriv = &haldata->odmpriv;
+
+	odmpriv->SupportAbility = odm_flag;
 }
 
 static int rtw_dbg_port(struct net_device *dev,
@@ -3329,8 +3338,9 @@ static int rtw_dbg_port(struct net_device *dev,
 			u16 reg = arg;
 			u16 start_value = 0;
 			u32 write_num = extra_arg;
-			int i;
+			int i, res;
 			struct xmit_frame	*xmit_frame;
+			u8 val8;
 
 			xmit_frame = rtw_IOL_accquire_xmit_frame(padapter);
 			if (!xmit_frame) {
@@ -3343,7 +3353,9 @@ static int rtw_dbg_port(struct net_device *dev,
 			if (rtl8188e_IOL_exec_cmds_sync(padapter, xmit_frame, 5000, 0) != _SUCCESS)
 				ret = -EPERM;
 
-			rtw_read8(padapter, reg);
+			/* FIXME: is this read necessary? */
+			res = rtw_read8(padapter, reg, &val8);
+			(void)res;
 		}
 			break;
 
@@ -3352,8 +3364,8 @@ static int rtw_dbg_port(struct net_device *dev,
 			u16 reg = arg;
 			u16 start_value = 200;
 			u32 write_num = extra_arg;
-
-			int i;
+			u16 val16;
+			int i, res;
 			struct xmit_frame	*xmit_frame;
 
 			xmit_frame = rtw_IOL_accquire_xmit_frame(padapter);
@@ -3367,7 +3379,9 @@ static int rtw_dbg_port(struct net_device *dev,
 			if (rtl8188e_IOL_exec_cmds_sync(padapter, xmit_frame, 5000, 0) != _SUCCESS)
 				ret = -EPERM;
 
-			rtw_read16(padapter, reg);
+			/* FIXME: is this read necessary? */
+			res = rtw_read16(padapter, reg, &val16);
+			(void)res;
 		}
 			break;
 		case 0x08: /* continuous write dword test */
@@ -3390,7 +3404,8 @@ static int rtw_dbg_port(struct net_device *dev,
 			if (rtl8188e_IOL_exec_cmds_sync(padapter, xmit_frame, 5000, 0) != _SUCCESS)
 				ret = -EPERM;
 
-			rtw_read32(padapter, reg);
+			/* FIXME: is this read necessary? */
+			ret = rtw_read32(padapter, reg, &write_num);
 		}
 			break;
 		}
@@ -3434,7 +3449,7 @@ static int rtw_dbg_port(struct net_device *dev,
 		case 0x06:
 			{
 				u32 ODMFlag = (u32)(0x0f & arg);
-				SetHwReg8188EU(padapter, HW_VAR_DM_FLAG, (u8 *)(&ODMFlag));
+				rtw_set_dm_func_flag(padapter, ODMFlag);
 			}
 			break;
 		case 0x07:
@@ -3545,7 +3560,7 @@ static int rtw_wx_set_priv(struct net_device *dev,
 
 		if ((_VENDOR_SPECIFIC_IE_ == probereq_wpsie[0]) &&
 		    (!memcmp(&probereq_wpsie[2], wps_oui, 4))) {
-			cp_sz = probereq_wpsie_len > MAX_WPS_IE_LEN ? MAX_WPS_IE_LEN : probereq_wpsie_len;
+			cp_sz = min(probereq_wpsie_len, MAX_WPS_IE_LEN);
 
 			pmlmepriv->wps_probe_req_ie_len = 0;
 			kfree(pmlmepriv->wps_probe_req_ie);

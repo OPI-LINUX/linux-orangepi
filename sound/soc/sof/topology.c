@@ -36,9 +36,6 @@
 #define TLV_STEP	1
 #define TLV_MUTE	2
 
-/* size of tplg abi in byte */
-#define SOF_TPLG_ABI_SIZE 3
-
 /**
  * sof_update_ipc_object - Parse multiple sets of tokens within the token array associated with the
  *			    token ID.
@@ -290,7 +287,11 @@ static const struct sof_dai_types sof_dais[] = {
 	{"ACP", SOF_DAI_AMD_BT},
 	{"ACPSP", SOF_DAI_AMD_SP},
 	{"ACPDMIC", SOF_DAI_AMD_DMIC},
+	{"ACPHS", SOF_DAI_AMD_HS},
 	{"AFE", SOF_DAI_MEDIATEK_AFE},
+	{"ACPSP_VIRTUAL", SOF_DAI_AMD_SP_VIRTUAL},
+	{"ACPHS_VIRTUAL", SOF_DAI_AMD_HS_VIRTUAL},
+
 };
 
 static enum sof_ipc_dai_type find_dai(const char *name)
@@ -362,6 +363,21 @@ int get_token_uuid(void *elem, void *object, u32 offset)
 	return 0;
 }
 
+/*
+ * The string gets from topology will be stored in heap, the owner only
+ * holds a char* member point to the heap.
+ */
+int get_token_string(void *elem, void *object, u32 offset)
+{
+	/* "dst" here points to the char* member of the owner */
+	char **dst = (char **)((u8 *)object + offset);
+
+	*dst = kstrdup(elem, GFP_KERNEL);
+	if (!*dst)
+		return -ENOMEM;
+	return 0;
+};
+
 int get_token_comp_format(void *elem, void *object, u32 offset)
 {
 	u32 *val = (u32 *)((u8 *)object + offset);
@@ -392,6 +408,23 @@ static const struct sof_topology_token led_tokens[] = {
 		offsetof(struct snd_sof_led_control, use_led)},
 	{SOF_TKN_MUTE_LED_DIRECTION, SND_SOC_TPLG_TUPLE_TYPE_WORD, get_token_u32,
 		offsetof(struct snd_sof_led_control, direction)},
+};
+
+static const struct sof_topology_token comp_pin_tokens[] = {
+	{SOF_TKN_COMP_NUM_SINK_PINS, SND_SOC_TPLG_TUPLE_TYPE_WORD, get_token_u32,
+		offsetof(struct snd_sof_widget, num_sink_pins)},
+	{SOF_TKN_COMP_NUM_SOURCE_PINS, SND_SOC_TPLG_TUPLE_TYPE_WORD, get_token_u32,
+		offsetof(struct snd_sof_widget, num_source_pins)},
+};
+
+static const struct sof_topology_token comp_sink_pin_binding_tokens[] = {
+	{SOF_TKN_COMP_SINK_PIN_BINDING_WNAME, SND_SOC_TPLG_TUPLE_TYPE_STRING,
+		get_token_string, 0},
+};
+
+static const struct sof_topology_token comp_src_pin_binding_tokens[] = {
+	{SOF_TKN_COMP_SRC_PIN_BINDING_WNAME, SND_SOC_TPLG_TUPLE_TYPE_STRING,
+		get_token_string, 0},
 };
 
 /**
@@ -574,7 +607,7 @@ static int sof_parse_string_tokens(struct snd_soc_component *scomp,
 {
 	struct snd_soc_tplg_vendor_string_elem *elem;
 	int found = 0;
-	int i, j;
+	int i, j, ret;
 
 	/* parse element by element */
 	for (i = 0; i < le32_to_cpu(array->num_elems); i++) {
@@ -591,7 +624,9 @@ static int sof_parse_string_tokens(struct snd_soc_component *scomp,
 				continue;
 
 			/* matched - now load token */
-			tokens[j].get_token(elem->string, object, offset + tokens[j].offset);
+			ret = tokens[j].get_token(elem->string, object, offset + tokens[j].offset);
+			if (ret < 0)
+				return ret;
 
 			found++;
 		}
@@ -671,6 +706,7 @@ static int sof_parse_token_sets(struct snd_soc_component *scomp,
 	int found = 0;
 	int total = 0;
 	int asize;
+	int ret;
 
 	while (array_size > 0 && total < count * token_instance_num) {
 		asize = le32_to_cpu(array->size);
@@ -697,8 +733,15 @@ static int sof_parse_token_sets(struct snd_soc_component *scomp,
 						       array);
 			break;
 		case SND_SOC_TPLG_TUPLE_TYPE_STRING:
-			found += sof_parse_string_tokens(scomp, object, offset, tokens, count,
-							 array);
+
+			ret = sof_parse_string_tokens(scomp, object, offset, tokens, count,
+						      array);
+			if (ret < 0) {
+				dev_err(scomp->dev, "error: no memory to copy string token\n");
+				return ret;
+			}
+
+			found += ret;
 			break;
 		case SND_SOC_TPLG_TUPLE_TYPE_BOOL:
 		case SND_SOC_TPLG_TUPLE_TYPE_BYTE:
@@ -1014,9 +1057,6 @@ static int sof_connect_dai_widget(struct snd_soc_component *scomp,
 	}
 
 	list_for_each_entry(rtd, &card->rtd_list, list) {
-		dev_vdbg(scomp->dev, "tplg: check widget: %s stream: %s dai stream: %s\n",
-			 w->name,  w->sname, rtd->dai_link->stream_name);
-
 		/* does stream match DAI link ? */
 		if (!rtd->dai_link->stream_name ||
 		    strcmp(w->sname, rtd->dai_link->stream_name))
@@ -1035,7 +1075,7 @@ static int sof_connect_dai_widget(struct snd_soc_component *scomp,
 					break;
 				}
 			}
-			if (i == rtd->num_cpus) {
+			if (i == rtd->dai_link->num_cpus) {
 				dev_err(scomp->dev, "error: can't find BE for DAI %s\n",
 					w->name);
 
@@ -1057,7 +1097,7 @@ static int sof_connect_dai_widget(struct snd_soc_component *scomp,
 					break;
 				}
 			}
-			if (i == rtd->num_cpus) {
+			if (i == rtd->dai_link->num_cpus) {
 				dev_err(scomp->dev, "error: can't find BE for DAI %s\n",
 					w->name);
 
@@ -1141,6 +1181,21 @@ static int spcm_bind(struct snd_soc_component *scomp, struct snd_sof_pcm *spcm,
 	return 0;
 }
 
+static int sof_get_token_value(u32 token_id, struct snd_sof_tuple *tuples, int num_tuples)
+{
+	int i;
+
+	if (!tuples)
+		return -EINVAL;
+
+	for (i = 0; i < num_tuples; i++) {
+		if (tuples[i].token == token_id)
+			return tuples[i].value.v;
+	}
+
+	return -EINVAL;
+}
+
 static int sof_widget_parse_tokens(struct snd_soc_component *scomp, struct snd_sof_widget *swidget,
 				   struct snd_soc_tplg_dapm_widget *tw,
 				   enum sof_tokens *object_token_list, int count)
@@ -1168,6 +1223,8 @@ static int sof_widget_parse_tokens(struct snd_soc_component *scomp, struct snd_s
 
 	/* parse token list for widget */
 	for (i = 0; i < count; i++) {
+		int num_sets = 1;
+
 		if (object_token_list[i] >= SOF_TOKEN_COUNT) {
 			dev_err(scomp->dev, "Invalid token id %d for widget %s\n",
 				object_token_list[i], swidget->widget->name);
@@ -1175,8 +1232,9 @@ static int sof_widget_parse_tokens(struct snd_soc_component *scomp, struct snd_s
 			goto err;
 		}
 
-		/* parse and save UUID in swidget */
-		if (object_token_list[i] == SOF_COMP_EXT_TOKENS) {
+		switch (object_token_list[i]) {
+		case SOF_COMP_EXT_TOKENS:
+			/* parse and save UUID in swidget */
 			ret = sof_parse_tokens(scomp, swidget,
 					       token_list[object_token_list[i]].tokens,
 					       token_list[object_token_list[i]].count,
@@ -1189,11 +1247,41 @@ static int sof_widget_parse_tokens(struct snd_soc_component *scomp, struct snd_s
 			}
 
 			continue;
+		case SOF_IN_AUDIO_FORMAT_TOKENS:
+		case SOF_OUT_AUDIO_FORMAT_TOKENS:
+		case SOF_COPIER_GATEWAY_CFG_TOKENS:
+		case SOF_AUDIO_FORMAT_BUFFER_SIZE_TOKENS:
+			num_sets = sof_get_token_value(SOF_TKN_COMP_NUM_AUDIO_FORMATS,
+						       swidget->tuples, swidget->num_tuples);
+
+			if (num_sets < 0) {
+				dev_err(sdev->dev, "Invalid audio format count for %s\n",
+					swidget->widget->name);
+				ret = num_sets;
+				goto err;
+			}
+
+			if (num_sets > 1) {
+				struct snd_sof_tuple *new_tuples;
+
+				num_tuples += token_list[object_token_list[i]].count * num_sets;
+				new_tuples = krealloc(swidget->tuples,
+						      sizeof(*new_tuples) * num_tuples, GFP_KERNEL);
+				if (!new_tuples) {
+					ret = -ENOMEM;
+					goto err;
+				}
+
+				swidget->tuples = new_tuples;
+			}
+			break;
+		default:
+			break;
 		}
 
 		/* copy one set of tuples per token ID into swidget->tuples */
 		ret = sof_copy_tuples(sdev, private->array, le32_to_cpu(private->size),
-				      object_token_list[i], 1, swidget->tuples,
+				      object_token_list[i], num_sets, swidget->tuples,
 				      num_tuples, &swidget->num_tuples);
 		if (ret < 0) {
 			dev_err(scomp->dev, "Failed parsing %s for widget %s err: %d\n",
@@ -1208,19 +1296,77 @@ err:
 	return ret;
 }
 
-static int sof_get_token_value(u32 token_id, struct snd_sof_tuple *tuples, int num_tuples)
+static void sof_free_pin_binding(struct snd_sof_widget *swidget,
+				 bool pin_type)
 {
+	char **pin_binding;
+	u32 num_pins;
 	int i;
 
-	if (!tuples)
-		return -EINVAL;
-
-	for (i = 0; i < num_tuples; i++) {
-		if (tuples[i].token == token_id)
-			return tuples[i].value.v;
+	if (pin_type == SOF_PIN_TYPE_SINK) {
+		pin_binding = swidget->sink_pin_binding;
+		num_pins = swidget->num_sink_pins;
+	} else {
+		pin_binding = swidget->src_pin_binding;
+		num_pins = swidget->num_source_pins;
 	}
 
-	return -EINVAL;
+	if (pin_binding) {
+		for (i = 0; i < num_pins; i++)
+			kfree(pin_binding[i]);
+	}
+
+	kfree(pin_binding);
+}
+
+static int sof_parse_pin_binding(struct snd_sof_widget *swidget,
+				 struct snd_soc_tplg_private *priv, bool pin_type)
+{
+	const struct sof_topology_token *pin_binding_token;
+	char *pin_binding[SOF_WIDGET_MAX_NUM_PINS];
+	int token_count;
+	u32 num_pins;
+	char **pb;
+	int ret;
+	int i;
+
+	if (pin_type == SOF_PIN_TYPE_SINK) {
+		num_pins = swidget->num_sink_pins;
+		pin_binding_token = comp_sink_pin_binding_tokens;
+		token_count = ARRAY_SIZE(comp_sink_pin_binding_tokens);
+	} else {
+		num_pins = swidget->num_source_pins;
+		pin_binding_token = comp_src_pin_binding_tokens;
+		token_count = ARRAY_SIZE(comp_src_pin_binding_tokens);
+	}
+
+	memset(pin_binding, 0, SOF_WIDGET_MAX_NUM_PINS * sizeof(char *));
+	ret = sof_parse_token_sets(swidget->scomp, pin_binding, pin_binding_token,
+				   token_count, priv->array, le32_to_cpu(priv->size),
+				   num_pins, sizeof(char *));
+	if (ret < 0)
+		goto err;
+
+	/* copy pin binding array to swidget only if it is defined in topology */
+	if (pin_binding[0]) {
+		pb = kmemdup(pin_binding, num_pins * sizeof(char *), GFP_KERNEL);
+		if (!pb) {
+			ret = -ENOMEM;
+			goto err;
+		}
+		if (pin_type == SOF_PIN_TYPE_SINK)
+			swidget->sink_pin_binding = pb;
+		else
+			swidget->src_pin_binding = pb;
+	}
+
+	return 0;
+
+err:
+	for (i = 0; i < num_pins; i++)
+		kfree(pin_binding[i]);
+
+	return ret;
 }
 
 /* external widget init - used for any driver specific init */
@@ -1231,6 +1377,7 @@ static int sof_widget_ready(struct snd_soc_component *scomp, int index,
 	struct snd_sof_dev *sdev = snd_soc_component_get_drvdata(scomp);
 	const struct sof_ipc_tplg_ops *ipc_tplg_ops = sdev->ipc->ops->tplg;
 	const struct sof_ipc_tplg_widget_ops *widget_ops = ipc_tplg_ops->widget;
+	struct snd_soc_tplg_private *priv = &tw->priv;
 	struct snd_sof_widget *swidget;
 	struct snd_sof_dai *dai;
 	enum sof_tokens *token_list;
@@ -1248,11 +1395,50 @@ static int sof_widget_ready(struct snd_soc_component *scomp, int index,
 	swidget->id = w->id;
 	swidget->pipeline_id = index;
 	swidget->private = NULL;
+	ida_init(&swidget->src_queue_ida);
+	ida_init(&swidget->sink_queue_ida);
 
-	dev_dbg(scomp->dev, "tplg: ready widget id %d pipe %d type %d name : %s stream %s\n",
-		swidget->comp_id, index, swidget->id, tw->name,
-		strnlen(tw->sname, SNDRV_CTL_ELEM_ID_NAME_MAXLEN) > 0
-			? tw->sname : "none");
+	ret = sof_parse_tokens(scomp, swidget, comp_pin_tokens,
+			       ARRAY_SIZE(comp_pin_tokens), priv->array,
+			       le32_to_cpu(priv->size));
+	if (ret < 0) {
+		dev_err(scomp->dev, "failed to parse component pin tokens for %s\n",
+			w->name);
+		return ret;
+	}
+
+	if (swidget->num_sink_pins > SOF_WIDGET_MAX_NUM_PINS ||
+	    swidget->num_source_pins > SOF_WIDGET_MAX_NUM_PINS) {
+		dev_err(scomp->dev, "invalid pins for %s: [sink: %d, src: %d]\n",
+			swidget->widget->name, swidget->num_sink_pins, swidget->num_source_pins);
+		return -EINVAL;
+	}
+
+	if (swidget->num_sink_pins > 1) {
+		ret = sof_parse_pin_binding(swidget, priv, SOF_PIN_TYPE_SINK);
+		/* on parsing error, pin binding is not allocated, nothing to free. */
+		if (ret < 0) {
+			dev_err(scomp->dev, "failed to parse sink pin binding for %s\n",
+				w->name);
+			return ret;
+		}
+	}
+
+	if (swidget->num_source_pins > 1) {
+		ret = sof_parse_pin_binding(swidget, priv, SOF_PIN_TYPE_SOURCE);
+		/* on parsing error, pin binding is not allocated, nothing to free. */
+		if (ret < 0) {
+			dev_err(scomp->dev, "failed to parse source pin binding for %s\n",
+				w->name);
+			return ret;
+		}
+	}
+
+	dev_dbg(scomp->dev,
+		"tplg: widget %d (%s) is ready [type: %d, pipe: %d, pins: %d / %d, stream: %s]\n",
+		swidget->comp_id, w->name, swidget->id, index,
+		swidget->num_sink_pins, swidget->num_source_pins,
+		strnlen(w->sname, SNDRV_CTL_ELEM_ID_NAME_MAXLEN) > 0 ? w->sname : "none");
 
 	token_list = widget_ops[w->id].token_list;
 	token_list_size = widget_ops[w->id].token_list_size;
@@ -1316,16 +1502,6 @@ static int sof_widget_ready(struct snd_soc_component *scomp, int index,
 		break;
 	}
 
-	if (sof_debug_check_flag(SOF_DBG_DISABLE_MULTICORE)) {
-		swidget->core = SOF_DSP_PRIMARY_CORE;
-	} else {
-		int core = sof_get_token_value(SOF_TKN_COMP_CORE_ID, swidget->tuples,
-					       swidget->num_tuples);
-
-		if (core >= 0)
-			swidget->core = core;
-	}
-
 	/* check token parsing reply */
 	if (ret < 0) {
 		dev_err(scomp->dev,
@@ -1335,6 +1511,16 @@ static int sof_widget_ready(struct snd_soc_component *scomp, int index,
 				? tw->sname : "none");
 		kfree(swidget);
 		return ret;
+	}
+
+	if (sof_debug_check_flag(SOF_DBG_DISABLE_MULTICORE)) {
+		swidget->core = SOF_DSP_PRIMARY_CORE;
+	} else {
+		int core = sof_get_token_value(SOF_TKN_COMP_CORE_ID, swidget->tuples,
+					       swidget->num_tuples);
+
+		if (core >= 0)
+			swidget->core = core;
 	}
 
 	/* bind widget to external event */
@@ -1389,7 +1575,6 @@ static int sof_widget_unload(struct snd_soc_component *scomp,
 	struct soc_bytes_ext *sbe;
 	struct snd_sof_dai *dai;
 	struct soc_enum *se;
-	int ret = 0;
 	int i;
 
 	swidget = dobj->private;
@@ -1444,13 +1629,19 @@ out:
 	if (widget_ops[swidget->id].ipc_free)
 		widget_ops[swidget->id].ipc_free(swidget);
 
+	ida_destroy(&swidget->src_queue_ida);
+	ida_destroy(&swidget->sink_queue_ida);
+
+	sof_free_pin_binding(swidget, SOF_PIN_TYPE_SINK);
+	sof_free_pin_binding(swidget, SOF_PIN_TYPE_SOURCE);
+
 	kfree(swidget->tuples);
 
 	/* remove and free swidget object */
 	list_del(&swidget->list);
 	kfree(swidget);
 
-	return ret;
+	return 0;
 }
 
 /*
@@ -1508,9 +1699,6 @@ static int sof_dai_load(struct snd_soc_component *scomp, int index,
 
 	stream = SNDRV_PCM_STREAM_PLAYBACK;
 
-	dev_vdbg(scomp->dev, "tplg: pcm %s stream tokens: playback d0i3:%d\n",
-		 spcm->pcm.pcm_name, spcm->stream[stream].d0i3_compatible);
-
 	caps = &spcm->pcm.caps[stream];
 
 	/* allocate playback page table buffer */
@@ -1537,9 +1725,6 @@ capture:
 	/* do we need to allocate capture PCM DMA pages */
 	if (!spcm->pcm.capture)
 		return ret;
-
-	dev_vdbg(scomp->dev, "tplg: pcm %s stream tokens: capture d0i3:%d\n",
-		 spcm->pcm.pcm_name, spcm->stream[stream].d0i3_compatible);
 
 	caps = &spcm->pcm.caps[stream];
 
@@ -1708,6 +1893,17 @@ static int sof_link_load(struct snd_soc_component *scomp, int index, struct snd_
 	case SOF_DAI_MEDIATEK_AFE:
 		token_id = SOF_AFE_TOKENS;
 		num_tuples += token_list[SOF_AFE_TOKENS].count;
+		break;
+	case SOF_DAI_AMD_DMIC:
+		token_id = SOF_ACPDMIC_TOKENS;
+		num_tuples += token_list[SOF_ACPDMIC_TOKENS].count;
+		break;
+	case SOF_DAI_AMD_SP:
+	case SOF_DAI_AMD_HS:
+	case SOF_DAI_AMD_SP_VIRTUAL:
+	case SOF_DAI_AMD_HS_VIRTUAL:
+		token_id = SOF_ACPI2S_TOKENS;
+		num_tuples += token_list[SOF_ACPI2S_TOKENS].count;
 		break;
 	default:
 		break;
@@ -1987,45 +2183,11 @@ static int sof_complete(struct snd_soc_component *scomp)
 static int sof_manifest(struct snd_soc_component *scomp, int index,
 			struct snd_soc_tplg_manifest *man)
 {
-	u32 size;
-	u32 abi_version;
+	struct snd_sof_dev *sdev = snd_soc_component_get_drvdata(scomp);
+	const struct sof_ipc_tplg_ops *ipc_tplg_ops = sdev->ipc->ops->tplg;
 
-	size = le32_to_cpu(man->priv.size);
-
-	/* backward compatible with tplg without ABI info */
-	if (!size) {
-		dev_dbg(scomp->dev, "No topology ABI info\n");
-		return 0;
-	}
-
-	if (size != SOF_TPLG_ABI_SIZE) {
-		dev_err(scomp->dev, "error: invalid topology ABI size\n");
-		return -EINVAL;
-	}
-
-	dev_info(scomp->dev,
-		 "Topology: ABI %d:%d:%d Kernel ABI %d:%d:%d\n",
-		 man->priv.data[0], man->priv.data[1],
-		 man->priv.data[2], SOF_ABI_MAJOR, SOF_ABI_MINOR,
-		 SOF_ABI_PATCH);
-
-	abi_version = SOF_ABI_VER(man->priv.data[0],
-				  man->priv.data[1],
-				  man->priv.data[2]);
-
-	if (SOF_ABI_VERSION_INCOMPATIBLE(SOF_ABI_VERSION, abi_version)) {
-		dev_err(scomp->dev, "error: incompatible topology ABI version\n");
-		return -EINVAL;
-	}
-
-	if (SOF_ABI_VERSION_MINOR(abi_version) > SOF_ABI_MINOR) {
-		if (!IS_ENABLED(CONFIG_SND_SOC_SOF_STRICT_ABI_CHECKS)) {
-			dev_warn(scomp->dev, "warn: topology ABI is more recent than kernel\n");
-		} else {
-			dev_err(scomp->dev, "error: topology ABI is more recent than kernel\n");
-			return -EINVAL;
-		}
-	}
+	if (ipc_tplg_ops->parse_manifest)
+		return ipc_tplg_ops->parse_manifest(scomp, index, man);
 
 	return 0;
 }

@@ -618,7 +618,7 @@ static void bbr_reset_probe_bw_mode(struct sock *sk)
 	struct bbr *bbr = inet_csk_ca(sk);
 
 	bbr->mode = BBR_PROBE_BW;
-	bbr->cycle_idx = CYCLE_LEN - 1 - prandom_u32_max(bbr_cycle_rand);
+	bbr->cycle_idx = CYCLE_LEN - 1 - get_random_u32_below(bbr_cycle_rand);
 	bbr_advance_cycle_phase(sk);	/* flip to next phase of gain cycle */
 }
 
@@ -1154,24 +1154,24 @@ static struct tcp_congestion_ops tcp_bbr_cong_ops __read_mostly = {
 	.set_state	= bbr_set_state,
 };
 
-BTF_SET_START(tcp_bbr_check_kfunc_ids)
+BTF_SET8_START(tcp_bbr_check_kfunc_ids)
 #ifdef CONFIG_X86
 #ifdef CONFIG_DYNAMIC_FTRACE
-BTF_ID(func, bbr_init)
-BTF_ID(func, bbr_main)
-BTF_ID(func, bbr_sndbuf_expand)
-BTF_ID(func, bbr_undo_cwnd)
-BTF_ID(func, bbr_cwnd_event)
-BTF_ID(func, bbr_ssthresh)
-BTF_ID(func, bbr_min_tso_segs)
-BTF_ID(func, bbr_set_state)
+BTF_ID_FLAGS(func, bbr_init)
+BTF_ID_FLAGS(func, bbr_main)
+BTF_ID_FLAGS(func, bbr_sndbuf_expand)
+BTF_ID_FLAGS(func, bbr_undo_cwnd)
+BTF_ID_FLAGS(func, bbr_cwnd_event)
+BTF_ID_FLAGS(func, bbr_ssthresh)
+BTF_ID_FLAGS(func, bbr_min_tso_segs)
+BTF_ID_FLAGS(func, bbr_set_state)
 #endif
 #endif
-BTF_SET_END(tcp_bbr_check_kfunc_ids)
+BTF_SET8_END(tcp_bbr_check_kfunc_ids)
 
 static const struct btf_kfunc_id_set tcp_bbr_kfunc_set = {
-	.owner     = THIS_MODULE,
-	.check_set = &tcp_bbr_check_kfunc_ids,
+	.owner = THIS_MODULE,
+	.set   = &tcp_bbr_check_kfunc_ids,
 };
 
 static int __init bbr_register(void)

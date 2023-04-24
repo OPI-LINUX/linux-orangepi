@@ -9,11 +9,10 @@
 #include <drm/bridge/dw_hdmi.h>
 #include <drm/drm_encoder.h>
 #include <linux/clk.h>
+#include <linux/gpio/consumer.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 #include <linux/reset.h>
-#include <media/cec-notifier.h>
-#include <media/cec-pin.h>
 
 #define SUN8I_HDMI_PHY_DBG_CTRL_REG	0x0000
 #define SUN8I_HDMI_PHY_DBG_CTRL_PX_LOCK		BIT(0)
@@ -146,34 +145,20 @@
 #define SUN8I_HDMI_PHY_ANA_STS_RCAL_MASK	GENMASK(5, 0)
 
 #define SUN8I_HDMI_PHY_CEC_REG		0x003c
-#define SUN8I_HDMI_PHY_CEC_PIN_CTRL		BIT(7)
-/*
- * Documentation says that this bit is output enable. However,
- * it seems that this bit is actually output disable.
- */
-#define SUN8I_HDMI_PHY_CEC_OUT_DIS		BIT(2)
-#define SUN8I_HDMI_PHY_CEC_IN_DATA		BIT(1)
 
 struct sun8i_hdmi_phy;
 
 struct sun8i_hdmi_phy_variant {
 	bool has_phy_clk;
 	bool has_second_pll;
-	unsigned int is_custom_phy : 1;
 	const struct dw_hdmi_curr_ctrl *cur_ctr;
 	const struct dw_hdmi_mpll_config *mpll_cfg;
 	const struct dw_hdmi_phy_config *phy_cfg;
+	const struct dw_hdmi_phy_ops *phy_ops;
 	void (*phy_init)(struct sun8i_hdmi_phy *phy);
-	void (*phy_disable)(struct dw_hdmi *hdmi,
-			    struct sun8i_hdmi_phy *phy);
-	int  (*phy_config)(struct dw_hdmi *hdmi,
-			   struct sun8i_hdmi_phy *phy,
-			   unsigned int clk_rate);
 };
 
 struct sun8i_hdmi_phy {
-	struct cec_adapter		*cec_adapter;
-	struct cec_notifier		*cec_notifier;
 	struct clk			*clk_bus;
 	struct clk			*clk_mod;
 	struct clk			*clk_phy;
@@ -183,9 +168,7 @@ struct sun8i_hdmi_phy {
 	unsigned int			rcal;
 	struct regmap			*regs;
 	struct reset_control		*rst_phy;
-	struct sun8i_hdmi_phy_variant	*variant;
-	unsigned int 			disable_cec : 1;
-	unsigned int 			bit_bang_cec : 1;
+	const struct sun8i_hdmi_phy_variant *variant;
 };
 
 struct sun8i_dw_hdmi_quirks {
@@ -205,6 +188,7 @@ struct sun8i_dw_hdmi {
 	struct regulator		*regulator;
 	const struct sun8i_dw_hdmi_quirks *quirks;
 	struct reset_control		*rst_ctrl;
+	struct gpio_desc		*ddc_en;
 };
 
 extern struct platform_driver sun8i_hdmi_phy_driver;

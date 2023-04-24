@@ -14,7 +14,6 @@
 #include <linux/string.h>
 #include <linux/inet.h>
 #include <linux/pagemap.h>
-#include <linux/idr.h>
 #include <linux/sched.h>
 #include <linux/swap.h>
 #include <linux/uio.h>
@@ -40,7 +39,7 @@ static void v9fs_issue_read(struct netfs_io_subrequest *subreq)
 	size_t len = subreq->len   - subreq->transferred;
 	int total, err;
 
-	iov_iter_xarray(&to, READ, &rreq->mapping->i_pages, pos, len);
+	iov_iter_xarray(&to, ITER_DEST, &rreq->mapping->i_pages, pos, len);
 
 	total = p9_client_read(fid, pos, &to, &err);
 
@@ -73,7 +72,7 @@ static int v9fs_init_request(struct netfs_io_request *rreq, struct file *file)
 		BUG_ON(!fid);
 	}
 
-	refcount_inc(&fid->count);
+	p9_fid_get(fid);
 	rreq->netfs_priv = fid;
 	return 0;
 }
@@ -86,7 +85,7 @@ static void v9fs_free_request(struct netfs_io_request *rreq)
 {
 	struct p9_fid *fid = rreq->netfs_priv;
 
-	p9_client_clunk(fid);
+	p9_fid_put(fid);
 }
 
 /**
@@ -172,7 +171,7 @@ static int v9fs_vfs_write_folio_locked(struct folio *folio)
 
 	len = min_t(loff_t, i_size - start, len);
 
-	iov_iter_xarray(&from, WRITE, &folio_mapping(folio)->i_pages, start, len);
+	iov_iter_xarray(&from, ITER_SOURCE, &folio_mapping(folio)->i_pages, start, len);
 
 	/* We should have writeback_fid always set */
 	BUG_ON(!v9inode->writeback_fid);

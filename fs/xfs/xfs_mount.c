@@ -300,25 +300,27 @@ xfs_validate_new_dalign(
 	"alignment check failed: sunit/swidth vs. blocksize(%d)",
 			mp->m_sb.sb_blocksize);
 		return -EINVAL;
-	} else {
-		/*
-		 * Convert the stripe unit and width to FSBs.
-		 */
-		mp->m_dalign = XFS_BB_TO_FSBT(mp, mp->m_dalign);
-		if (mp->m_dalign && (mp->m_sb.sb_agblocks % mp->m_dalign)) {
-			xfs_warn(mp,
-		"alignment check failed: sunit/swidth vs. agsize(%d)",
-				 mp->m_sb.sb_agblocks);
-			return -EINVAL;
-		} else if (mp->m_dalign) {
-			mp->m_swidth = XFS_BB_TO_FSBT(mp, mp->m_swidth);
-		} else {
-			xfs_warn(mp,
-		"alignment check failed: sunit(%d) less than bsize(%d)",
-				 mp->m_dalign, mp->m_sb.sb_blocksize);
-			return -EINVAL;
-		}
 	}
+
+	/*
+	 * Convert the stripe unit and width to FSBs.
+	 */
+	mp->m_dalign = XFS_BB_TO_FSBT(mp, mp->m_dalign);
+	if (mp->m_dalign && (mp->m_sb.sb_agblocks % mp->m_dalign)) {
+		xfs_warn(mp,
+	"alignment check failed: sunit/swidth vs. agsize(%d)",
+			mp->m_sb.sb_agblocks);
+		return -EINVAL;
+	}
+
+	if (!mp->m_dalign) {
+		xfs_warn(mp,
+	"alignment check failed: sunit(%d) less than bsize(%d)",
+			mp->m_dalign, mp->m_sb.sb_blocksize);
+		return -EINVAL;
+	}
+
+	mp->m_swidth = XFS_BB_TO_FSBT(mp, mp->m_swidth);
 
 	if (!xfs_has_dalign(mp)) {
 		xfs_warn(mp,
@@ -534,6 +536,20 @@ xfs_check_summary_counts(
 	}
 
 	return 0;
+}
+
+static void
+xfs_unmount_check(
+	struct xfs_mount	*mp)
+{
+	if (xfs_is_shutdown(mp))
+		return;
+
+	if (percpu_counter_sum(&mp->m_ifree) >
+			percpu_counter_sum(&mp->m_icount)) {
+		xfs_alert(mp, "ifree/icount mismatch at unmount");
+		xfs_fs_mark_sick(mp, XFS_SICK_FS_COUNTERS);
+	}
 }
 
 /*
@@ -778,7 +794,8 @@ xfs_mountfs(
 	/*
 	 * Allocate and initialize the per-ag data.
 	 */
-	error = xfs_initialize_perag(mp, sbp->sb_agcount, &mp->m_maxagi);
+	error = xfs_initialize_perag(mp, sbp->sb_agcount, mp->m_sb.sb_dblocks,
+			&mp->m_maxagi);
 	if (error) {
 		xfs_warn(mp, "Failed per-ag init: %d", error);
 		goto out_free_dir;
@@ -1074,6 +1091,7 @@ xfs_unmountfs(
 	if (error)
 		xfs_warn(mp, "Unable to free reserved block pool. "
 				"Freespace may not be correct on next mount.");
+	xfs_unmount_check(mp);
 
 	xfs_log_unmount(mp);
 	xfs_da_unmount(mp);

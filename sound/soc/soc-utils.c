@@ -56,23 +56,24 @@ EXPORT_SYMBOL_GPL(snd_soc_params_to_bclk);
 /**
  * snd_soc_tdm_params_to_bclk - calculate bclk from params and tdm slot info.
  *
- * Calculate the bclk from the params sample rate and the tdm slot count and
- * tdm slot width. Either or both of tdm_width and tdm_slots can be 0.
+ * Calculate the bclk from the params sample rate, the tdm slot count and the
+ * tdm slot width. Optionally round-up the slot count to a given multiple.
+ * Either or both of tdm_width and tdm_slots can be 0.
  *
- * If tdm_width == 0 and tdm_slots > 0:	the params_width will be used.
- * If tdm_width > 0 and tdm_slots == 0:	the params_channels will be used
- *					as the slot count.
- * Both tdm_width and tdm_slots are 0:	this is equivalent to calling
- *					snd_soc_params_to_bclk().
+ * If tdm_width == 0:	use params_width() as the slot width.
+ * If tdm_slots == 0:	use params_channels() as the slot count.
  *
- * If slot_multiple > 1 the slot count (or params_channels if tdm_slots == 0)
- * will be rounded up to a multiple of this value. This is mainly useful for
+ * If slot_multiple > 1 the slot count (or params_channels() if tdm_slots == 0)
+ * will be rounded up to a multiple of slot_multiple. This is mainly useful for
  * I2S mode, which has a left and right phase so the number of slots is always
  * a multiple of 2.
  *
+ * If tdm_width == 0 && tdm_slots == 0 && slot_multiple < 2, this is equivalent
+ * to calling snd_soc_params_to_bclk().
+ *
  * @params:        Pointer to struct_pcm_hw_params.
- * @tdm_width:     Width in bits of the tdm slots.
- * @tdm_slots:     Number of tdm slots per frame.
+ * @tdm_width:     Width in bits of the tdm slots. Must be >= 0.
+ * @tdm_slots:     Number of tdm slots per frame. Must be >= 0.
  * @slot_multiple: If >1 roundup slot count to a multiple of this value.
  *
  * Return: bclk frequency in Hz, else a negative error code if params format
@@ -115,16 +116,26 @@ static int dummy_dma_open(struct snd_soc_component *component,
 			  struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
-	int i;
+	int i, aw_quirks = 0;
+	struct device_node *dt_node;
 
 	/*
 	 * If there are other components associated with rtd, we shouldn't
 	 * override their hwparams
 	 */
-	for_each_rtd_components(rtd, i, component) {
-		if (component->driver == &dummy_platform)
-			return 0;
-	}
+
+	dt_node = of_find_node_by_path("/soc/hdmi@6000000");
+	if (dt_node)
+		if (of_get_property(dt_node, "aw-hdmi-codec-quirk", NULL))
+			aw_quirks = 1;
+
+	if (aw_quirks)
+		printk("dummy_dma_open: using aw-hdmi-codec-quirk for H616\n");
+	else
+		for_each_rtd_components(rtd, i, component) {
+			if (component->driver == &dummy_platform)
+				return 0;
+		}
 
 	/* BE's dont need dummy params */
 	if (!rtd->dai_link->no_pcm)
@@ -141,7 +152,6 @@ static const struct snd_soc_component_driver dummy_codec = {
 	.idle_bias_on		= 1,
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
-	.non_legacy_dai_naming	= 1,
 };
 
 #define STUB_RATES	SNDRV_PCM_RATE_8000_384000
@@ -264,7 +274,7 @@ int __init snd_soc_util_init(void)
 	return ret;
 }
 
-void __exit snd_soc_util_exit(void)
+void snd_soc_util_exit(void)
 {
 	platform_driver_unregister(&soc_dummy_driver);
 	platform_device_unregister(soc_dummy_dev);

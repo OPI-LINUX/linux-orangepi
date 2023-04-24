@@ -111,7 +111,7 @@ err:
 	return ret;
 }
 
-static int ac200_i2c_remove(struct i2c_client *i2c)
+static void ac200_i2c_remove(struct i2c_client *i2c)
 {
 	struct ac200_dev *ac200 = i2c_get_clientdata(i2c);
 
@@ -119,7 +119,7 @@ static int ac200_i2c_remove(struct i2c_client *i2c)
 
 	clk_disable_unprepare(ac200->clk);
 
-	return 0;
+	//return 0;
 }
 
 static const struct i2c_device_id ac200_ids[] = {

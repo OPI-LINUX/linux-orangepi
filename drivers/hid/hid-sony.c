@@ -368,7 +368,7 @@ static const unsigned int buzz_keymap[] = {
 };
 
 /* The Navigation controller is a partial DS3 and uses the same HID report
- * and hence the same keymap indices, however not not all axes/buttons
+ * and hence the same keymap indices, however not all axes/buttons
  * are physically present. We use the same axis and button mapping as
  * the DS3, which uses the Linux gamepad spec.
  */
@@ -932,25 +932,6 @@ static int ds4_mapping(struct hid_device *hdev, struct hid_input *hi,
 		hid_map_usage_clear(hi, usage, bit, max, EV_ABS, abs);
 		return 1;
 	}
-
-	return 0;
-}
-
-static int ps3remote_setup_repeat(struct hid_device *hdev)
-{
-	struct hid_input *hidinput = list_first_entry(&hdev->inputs,
-						 struct hid_input, list);
-	struct input_dev *input = hidinput->input;
-
-	/*
-	 * Set up autorepeat defaults per the remote control subsystem;
-	 * this must be done after hid_hw_start(), as having these non-zero
-	 * at the time of input_register_device() tells the input system that
-	 * the hardware does the autorepeat, and the PS3 remote does not.
-	*/
-	set_bit(EV_REP, input->evbit);
-	input->rep[REP_DELAY]  = 500;
-	input->rep[REP_PERIOD] = 125;
 
 	return 0;
 }
@@ -2374,11 +2355,13 @@ static void motion_send_output_report(struct sony_sc *sc)
 	hid_hw_output_report(hdev, (u8 *)report, MOTION_REPORT_0x02_SIZE);
 }
 
+#ifdef CONFIG_SONY_FF
 static inline void sony_send_output_report(struct sony_sc *sc)
 {
 	if (sc->send_output_report)
 		sc->send_output_report(sc);
 }
+#endif
 
 static void sony_state_worker(struct work_struct *work)
 {
@@ -2944,8 +2927,6 @@ static int sony_input_configured(struct hid_device *hdev,
 
 	} else if (sc->quirks & MOTION_CONTROLLER) {
 		sony_init_output_report(sc, motion_send_output_report);
-	} else if (sc->quirks & PS3REMOTE) {
-		ret = ps3remote_setup_repeat(hdev);
 	} else {
 		ret = 0;
 	}

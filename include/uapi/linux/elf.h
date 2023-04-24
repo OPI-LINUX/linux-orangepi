@@ -91,7 +91,7 @@ typedef __s64	Elf64_Sxword;
 #define DT_INIT		12
 #define DT_FINI		13
 #define DT_SONAME	14
-#define DT_RPATH 	15
+#define DT_RPATH	15
 #define DT_SYMBOLIC	16
 #define DT_REL	        17
 #define DT_RELSZ	18
@@ -140,9 +140,9 @@ typedef __s64	Elf64_Sxword;
 #define ELF64_ST_BIND(x)	ELF_ST_BIND(x)
 #define ELF64_ST_TYPE(x)	ELF_ST_TYPE(x)
 
-typedef struct dynamic{
+typedef struct dynamic {
   Elf32_Sword d_tag;
-  union{
+  union {
     Elf32_Sword	d_val;
     Elf32_Addr	d_ptr;
   } d_un;
@@ -173,7 +173,7 @@ typedef struct elf64_rel {
   Elf64_Xword r_info;	/* index and type of relocation */
 } Elf64_Rel;
 
-typedef struct elf32_rela{
+typedef struct elf32_rela {
   Elf32_Addr	r_offset;
   Elf32_Word	r_info;
   Elf32_Sword	r_addend;
@@ -185,7 +185,7 @@ typedef struct elf64_rela {
   Elf64_Sxword r_addend;	/* Constant addend used to compute value */
 } Elf64_Rela;
 
-typedef struct elf32_sym{
+typedef struct elf32_sym {
   Elf32_Word	st_name;
   Elf32_Addr	st_value;
   Elf32_Word	st_size;
@@ -206,7 +206,7 @@ typedef struct elf64_sym {
 
 #define EI_NIDENT	16
 
-typedef struct elf32_hdr{
+typedef struct elf32_hdr {
   unsigned char	e_ident[EI_NIDENT];
   Elf32_Half	e_type;
   Elf32_Half	e_machine;
@@ -246,7 +246,7 @@ typedef struct elf64_hdr {
 #define PF_W		0x2
 #define PF_X		0x1
 
-typedef struct elf32_phdr{
+typedef struct elf32_phdr {
   Elf32_Word	p_type;
   Elf32_Off	p_offset;
   Elf32_Addr	p_vaddr;
@@ -420,6 +420,7 @@ typedef struct elf64_shdr {
 #define NT_S390_GS_CB	0x30b		/* s390 guarded storage registers */
 #define NT_S390_GS_BC	0x30c		/* s390 guarded storage broadcast control block */
 #define NT_S390_RI_CB	0x30d		/* s390 runtime instrumentation */
+#define NT_S390_PV_CPU_DATA	0x30e	/* s390 protvirt cpu dump data */
 #define NT_ARM_VFP	0x400		/* ARM VFP/NEON registers */
 #define NT_ARM_TLS	0x401		/* ARM TLS register */
 #define NT_ARM_HW_BREAK	0x402		/* ARM hardware breakpoint registers */

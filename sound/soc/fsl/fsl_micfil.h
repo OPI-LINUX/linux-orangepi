@@ -73,6 +73,15 @@
 #define MICFIL_FIFO_STAT_FIFOX_OVER(ch)	BIT(ch)
 #define MICFIL_FIFO_STAT_FIFOX_UNDER(ch)	BIT((ch) + 8)
 
+/* MICFIL DC Remover Control Register -- REG_MICFIL_DC_CTRL */
+#define MICFIL_DC_CTRL_CONFIG          GENMASK(15, 0)
+#define MICFIL_DC_CHX_SHIFT(ch)        ((ch) << 1)
+#define MICFIL_DC_CHX(ch)              GENMASK((((ch) << 1) + 1), ((ch) << 1))
+#define MICFIL_DC_CUTOFF_21HZ          0
+#define MICFIL_DC_CUTOFF_83HZ          1
+#define MICFIL_DC_CUTOFF_152Hz         2
+#define MICFIL_DC_BYPASS               3
+
 /* MICFIL HWVAD0 Control 1 Register -- REG_MICFIL_VAD0_CTRL1*/
 #define MICFIL_VAD0_CTRL1_CHSEL		GENMASK(26, 24)
 #define MICFIL_VAD0_CTRL1_CICOSR	GENMASK(19, 16)
@@ -127,10 +136,14 @@
 #define FIFO_PTRWID			3
 #define FIFO_LEN			BIT(FIFO_PTRWID)
 
-#define MICFIL_IRQ_LINES		2
+#define MICFIL_IRQ_LINES		4
 #define MICFIL_MAX_RETRY		25
 #define MICFIL_SLEEP_MIN		90000 /* in us */
 #define MICFIL_SLEEP_MAX		100000 /* in us */
 #define MICFIL_DMA_MAXBURST_RX		6
+
+/* HWVAD Constants */
+#define MICFIL_HWVAD_ENVELOPE_MODE	0
+#define MICFIL_HWVAD_ENERGY_MODE	1
 
 #endif /* _FSL_MICFIL_H */

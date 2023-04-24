@@ -222,65 +222,32 @@ void get_rate_set(struct adapter *padapter, unsigned char *pbssrate, int *bssrat
 	memcpy(pbssrate, supportedrates, *bssrate_len);
 }
 
-void UpdateBrateTbl(struct adapter *Adapter, u8 *mbrate)
-{
-	u8	i;
-	u8	rate;
-
-	/*  1M, 2M, 5.5M, 11M, 6M, 12M, 24M are mandatory. */
-	for (i = 0; i < NDIS_802_11_LENGTH_RATES_EX; i++) {
-		rate = mbrate[i] & 0x7f;
-		switch (rate) {
-		case IEEE80211_CCK_RATE_1MB:
-		case IEEE80211_CCK_RATE_2MB:
-		case IEEE80211_CCK_RATE_5MB:
-		case IEEE80211_CCK_RATE_11MB:
-		case IEEE80211_OFDM_RATE_6MB:
-		case IEEE80211_OFDM_RATE_12MB:
-		case IEEE80211_OFDM_RATE_24MB:
-			mbrate[i] |= IEEE80211_BASIC_RATE_MASK;
-			break;
-		}
-	}
-}
-
-void UpdateBrateTblForSoftAP(u8 *bssrateset, u32 bssratelen)
-{
-	u8	i;
-	u8	rate;
-
-	for (i = 0; i < bssratelen; i++) {
-		rate = bssrateset[i] & 0x7f;
-		switch (rate) {
-		case IEEE80211_CCK_RATE_1MB:
-		case IEEE80211_CCK_RATE_2MB:
-		case IEEE80211_CCK_RATE_5MB:
-		case IEEE80211_CCK_RATE_11MB:
-			bssrateset[i] |= IEEE80211_BASIC_RATE_MASK;
-			break;
-		}
-	}
-}
-
 void Save_DM_Func_Flag(struct adapter *padapter)
 {
-	u8	saveflag = true;
+	struct hal_data_8188e *haldata = &padapter->haldata;
+	struct odm_dm_struct *odmpriv = &haldata->odmpriv;
 
-	SetHwReg8188EU(padapter, HW_VAR_DM_FUNC_OP, (u8 *)(&saveflag));
+	odmpriv->BK_SupportAbility = odmpriv->SupportAbility;
 }
 
 void Restore_DM_Func_Flag(struct adapter *padapter)
 {
-	u8	saveflag = false;
+	struct hal_data_8188e *haldata = &padapter->haldata;
+	struct odm_dm_struct *odmpriv = &haldata->odmpriv;
 
-	SetHwReg8188EU(padapter, HW_VAR_DM_FUNC_OP, (u8 *)(&saveflag));
+	odmpriv->SupportAbility = odmpriv->BK_SupportAbility;
 }
 
 void Set_MSR(struct adapter *padapter, u8 type)
 {
 	u8 val8;
+	int res;
 
-	val8 = rtw_read8(padapter, MSR) & 0x0c;
+	res = rtw_read8(padapter, MSR, &val8);
+	if (res)
+		return;
+
+	val8 &= 0x0c;
 	val8 |= type;
 	rtw_write8(padapter, MSR, val8);
 }
@@ -364,35 +331,35 @@ u16 get_beacon_interval(struct wlan_bssid_ex *bss)
 	return le16_to_cpu(val);
 }
 
-int is_client_associated_to_ap(struct adapter *padapter)
+bool r8188eu_is_client_associated_to_ap(struct adapter *padapter)
 {
 	struct mlme_ext_priv	*pmlmeext;
 	struct mlme_ext_info	*pmlmeinfo;
 
 	if (!padapter)
-		return _FAIL;
+		return false;
 
 	pmlmeext = &padapter->mlmeextpriv;
 	pmlmeinfo = &pmlmeext->mlmext_info;
 
 	if ((pmlmeinfo->state & WIFI_FW_ASSOC_SUCCESS) && ((pmlmeinfo->state & 0x03) == WIFI_FW_STATION_STATE))
 		return true;
-	else
-		return _FAIL;
+
+	return false;
 }
 
-int is_client_associated_to_ibss(struct adapter *padapter)
+bool r8188eu_is_client_associated_to_ibss(struct adapter *padapter)
 {
 	struct mlme_ext_priv	*pmlmeext = &padapter->mlmeextpriv;
 	struct mlme_ext_info	*pmlmeinfo = &pmlmeext->mlmext_info;
 
 	if ((pmlmeinfo->state & WIFI_FW_ASSOC_SUCCESS) && ((pmlmeinfo->state & 0x03) == WIFI_FW_ADHOC_STATE))
 		return true;
-	else
-		return _FAIL;
+
+	return false;
 }
 
-int is_IBSS_empty(struct adapter *padapter)
+bool r8188eu_is_ibss_empty(struct adapter *padapter)
 {
 	unsigned int i;
 	struct mlme_ext_priv	*pmlmeext = &padapter->mlmeextpriv;
@@ -400,7 +367,7 @@ int is_IBSS_empty(struct adapter *padapter)
 
 	for (i = IBSS_START_MAC_ID; i < NUM_STA; i++) {
 		if (pmlmeinfo->FW_sta_info[i].status == 1)
-			return _FAIL;
+			return false;
 	}
 	return true;
 }
@@ -505,7 +472,11 @@ int WMM_param_handler(struct adapter *padapter, struct ndis_802_11_var_ie *pIE)
 
 static void set_acm_ctrl(struct adapter *adapter, u8 acm_mask)
 {
-	u8 acmctrl = rtw_read8(adapter, REG_ACMHWCTRL);
+	u8 acmctrl;
+	int res = rtw_read8(adapter, REG_ACMHWCTRL, &acmctrl);
+
+	if (res)
+		return;
 
 	if (acm_mask > 1)
 		acmctrl = acmctrl | 0x1;
@@ -765,6 +736,7 @@ void HT_info_handler(struct adapter *padapter, struct ndis_802_11_var_ie *pIE)
 static void set_min_ampdu_spacing(struct adapter *adapter, u8 spacing)
 {
 	u8 sec_spacing;
+	int res;
 
 	if (spacing <= 7) {
 		switch (adapter->securitypriv.dot11PrivacyAlgrthm) {
@@ -786,8 +758,38 @@ static void set_min_ampdu_spacing(struct adapter *adapter, u8 spacing)
 		if (spacing < sec_spacing)
 			spacing = sec_spacing;
 
+		res = rtw_read8(adapter, REG_AMPDU_MIN_SPACE, &sec_spacing);
+		if (res)
+			return;
+
 		rtw_write8(adapter, REG_AMPDU_MIN_SPACE,
-			   (rtw_read8(adapter, REG_AMPDU_MIN_SPACE) & 0xf8) | spacing);
+			   (sec_spacing & 0xf8) | spacing);
+	}
+}
+
+static void set_ampdu_factor(struct adapter *adapter, u8 factor)
+{
+	u8 RegToSet_Normal[4] = {0x41, 0xa8, 0x72, 0xb9};
+	u8 FactorToSet;
+	u8 *pRegToSet;
+	u8 index = 0;
+
+	pRegToSet = RegToSet_Normal; /*  0xb972a841; */
+	FactorToSet = factor;
+	if (FactorToSet <= 3) {
+		FactorToSet = (1 << (FactorToSet + 2));
+		if (FactorToSet > 0xf)
+			FactorToSet = 0xf;
+
+		for (index = 0; index < 4; index++) {
+			if ((pRegToSet[index] & 0xf0) > (FactorToSet << 4))
+				pRegToSet[index] = (pRegToSet[index] & 0x0f) | (FactorToSet << 4);
+
+			if ((pRegToSet[index] & 0x0f) > FactorToSet)
+				pRegToSet[index] = (pRegToSet[index] & 0xf0) | (FactorToSet);
+
+			rtw_write8(adapter, (REG_AGGLEN_LMT + index), pRegToSet[index]);
+		}
 	}
 }
 
@@ -817,7 +819,7 @@ void HTOnAssocRsp(struct adapter *padapter)
 
 	set_min_ampdu_spacing(padapter, min_MPDU_spacing);
 
-	SetHwReg8188EU(padapter, HW_VAR_AMPDU_FACTOR, (u8 *)(&max_AMPDU_len));
+	set_ampdu_factor(padapter, max_AMPDU_len);
 }
 
 void ERP_IE_handler(struct adapter *padapter, struct ndis_802_11_var_ie *pIE)
@@ -872,9 +874,10 @@ void VCS_update(struct adapter *padapter, struct sta_info *psta)
 
 int rtw_check_bcn_info(struct adapter  *Adapter, u8 *pframe, u32 packet_len)
 {
+	struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *)pframe;
 	unsigned int		len;
 	unsigned char		*p;
-	unsigned short	val16, subtype;
+	unsigned short	val16;
 	struct wlan_network *cur_network = &Adapter->mlmepriv.cur_network;
 	/* u8 wpa_ie[255], rsn_ie[255]; */
 	u16 wpa_len = 0, rsn_len = 0;
@@ -891,7 +894,7 @@ int rtw_check_bcn_info(struct adapter  *Adapter, u8 *pframe, u32 packet_len)
 	unsigned short	ht_cap_info;
 	unsigned char	ht_info_infos_0;
 
-	if (!is_client_associated_to_ap(Adapter))
+	if (!r8188eu_is_client_associated_to_ap(Adapter))
 		return true;
 
 	len = packet_len - sizeof(struct ieee80211_hdr_3addr);
@@ -906,9 +909,7 @@ int rtw_check_bcn_info(struct adapter  *Adapter, u8 *pframe, u32 packet_len)
 	if (!bssid)
 		return _FAIL;
 
-	subtype = GetFrameSubType(pframe) >> 4;
-
-	if (subtype == WIFI_BEACON)
+	if (ieee80211_is_beacon(mgmt->frame_control))
 		bssid->Reserved[0] = 1;
 
 	bssid->Length = sizeof(struct wlan_bssid_ex) - MAX_IE_SZ + len;
@@ -1033,16 +1034,13 @@ _mismatch:
 	return _FAIL;
 }
 
-void update_beacon_info(struct adapter *padapter, u8 *pframe, uint pkt_len, struct sta_info *psta)
+void update_beacon_info(struct adapter *padapter, u8 *ie_ptr, uint ie_len, struct sta_info *psta)
 {
 	unsigned int i;
-	unsigned int len;
 	struct ndis_802_11_var_ie *pIE;
 
-	len = pkt_len - (_BEACON_IE_OFFSET_ + WLAN_HDR_A3_LEN);
-
-	for (i = 0; i < len;) {
-		pIE = (struct ndis_802_11_var_ie *)(pframe + (_BEACON_IE_OFFSET_ + WLAN_HDR_A3_LEN) + i);
+	for (i = 0; i < ie_len;) {
+		pIE = (struct ndis_802_11_var_ie *)(ie_ptr + i);
 
 		switch (pIE->ElementID) {
 		case _HT_EXTRA_INFO_IE_:	/* HT info */
@@ -1225,6 +1223,45 @@ void set_sta_rate(struct adapter *padapter, struct sta_info *psta)
 	enable_rate_adaptive(padapter, psta->mac_id);
 }
 
+void rtw_set_basic_rate(struct adapter *adapter, u8 *rates)
+{
+	u16 BrateCfg = 0;
+	u8 RateIndex = 0;
+	int res;
+	u8 reg;
+
+	/*  2007.01.16, by Emily */
+	/*  Select RRSR (in Legacy-OFDM and CCK) */
+	/*  For 8190, we select only 24M, 12M, 6M, 11M, 5.5M, 2M, and 1M from the Basic rate. */
+	/*  We do not use other rates. */
+	HalSetBrateCfg(adapter, rates, &BrateCfg);
+
+	/* 2011.03.30 add by Luke Lee */
+	/* CCK 2M ACK should be disabled for some BCM and Atheros AP IOT */
+	/* because CCK 2M has poor TXEVM */
+	/* CCK 5.5M & 11M ACK should be enabled for better performance */
+
+	BrateCfg = (BrateCfg | 0xd) & 0x15d;
+
+	BrateCfg |= 0x01; /*  default enable 1M ACK rate */
+	/*  Set RRSR rate table. */
+	rtw_write8(adapter, REG_RRSR, BrateCfg & 0xff);
+	rtw_write8(adapter, REG_RRSR + 1, (BrateCfg >> 8) & 0xff);
+	res = rtw_read8(adapter, REG_RRSR + 2, &reg);
+	if (res)
+		return;
+
+	rtw_write8(adapter, REG_RRSR + 2, reg & 0xf0);
+
+	/*  Set RTS initial rate */
+	while (BrateCfg > 0x1) {
+		BrateCfg = (BrateCfg >> 1);
+		RateIndex++;
+	}
+	/*  Ziv - Check */
+	rtw_write8(adapter, REG_INIRTS_RATE_SEL, RateIndex);
+}
+
 /*  Update RRSR and Rate for USERATE */
 void update_tx_basic_rate(struct adapter *padapter, u8 wirelessmode)
 {
@@ -1250,7 +1287,7 @@ void update_tx_basic_rate(struct adapter *padapter, u8 wirelessmode)
 	else
 		update_mgnt_tx_rate(padapter, IEEE80211_OFDM_RATE_6MB);
 
-	SetHwReg8188EU(padapter, HW_VAR_BASIC_RATE, supported_rates);
+	rtw_set_basic_rate(padapter, supported_rates);
 }
 
 unsigned char check_assoc_AP(u8 *pframe, uint len)
@@ -1348,6 +1385,30 @@ static void set_ack_preamble(struct adapter *adapter, bool short_preamble)
 	rtw_write8(adapter, REG_RRSR + 2, val8);
 };
 
+static void set_slot_time(struct adapter *adapter, u8 slot_time)
+{
+	u8 u1bAIFS, aSifsTime;
+	struct mlme_ext_priv *pmlmeext = &adapter->mlmeextpriv;
+	struct mlme_ext_info *pmlmeinfo = &pmlmeext->mlmext_info;
+
+	rtw_write8(adapter, REG_SLOT, slot_time);
+
+	if (pmlmeinfo->WMM_enable == 0) {
+		if (pmlmeext->cur_wireless_mode == WIRELESS_11B)
+			aSifsTime = 10;
+		else
+			aSifsTime = 16;
+
+		u1bAIFS = aSifsTime + (2 * pmlmeinfo->slotTime);
+
+		/*  <Roger_EXP> Temporary removed, 2008.06.20. */
+		rtw_write8(adapter, REG_EDCA_VO_PARAM, u1bAIFS);
+		rtw_write8(adapter, REG_EDCA_VI_PARAM, u1bAIFS);
+		rtw_write8(adapter, REG_EDCA_BE_PARAM, u1bAIFS);
+		rtw_write8(adapter, REG_EDCA_BK_PARAM, u1bAIFS);
+	}
+}
+
 void update_capinfo(struct adapter *Adapter, u16 updateCap)
 {
 	struct mlme_ext_priv	*pmlmeext = &Adapter->mlmeextpriv;
@@ -1386,7 +1447,7 @@ void update_capinfo(struct adapter *Adapter, u16 updateCap)
 		}
 	}
 
-	SetHwReg8188EU(Adapter, HW_VAR_SLOT_TIME, &pmlmeinfo->slotTime);
+	set_slot_time(Adapter, pmlmeinfo->slotTime);
 }
 
 void update_wireless_mode(struct adapter *padapter)
@@ -1466,26 +1527,6 @@ int update_sta_support_rate(struct adapter *padapter, u8 *pvar_ie, uint var_ie_l
 	return _SUCCESS;
 }
 
-void update_TSF(struct mlme_ext_priv *pmlmeext, u8 *pframe, uint len)
-{
-	u8 *pIE;
-	__le32 *pbuf;
-
-	pIE = pframe + sizeof(struct ieee80211_hdr_3addr);
-	pbuf = (__le32 *)pIE;
-
-	pmlmeext->TSFValue = le32_to_cpu(*(pbuf + 1));
-
-	pmlmeext->TSFValue = pmlmeext->TSFValue << 32;
-
-	pmlmeext->TSFValue |= le32_to_cpu(*pbuf);
-}
-
-void correct_TSF(struct adapter *padapter, struct mlme_ext_priv *pmlmeext)
-{
-	SetHwReg8188EU(padapter, HW_VAR_CORRECT_TSF, NULL);
-}
-
 void beacon_timing_control(struct adapter *padapter)
 {
 	SetBeaconRelatedRegisters8188EUsb(padapter);
@@ -1493,10 +1534,8 @@ void beacon_timing_control(struct adapter *padapter)
 
 static struct adapter *pbuddy_padapter;
 
-int rtw_handle_dualmac(struct adapter *adapter, bool init)
+void rtw_handle_dualmac(struct adapter *adapter, bool init)
 {
-	int status = _SUCCESS;
-
 	if (init) {
 		if (!pbuddy_padapter) {
 			pbuddy_padapter = adapter;
@@ -1509,5 +1548,4 @@ int rtw_handle_dualmac(struct adapter *adapter, bool init)
 	} else {
 		pbuddy_padapter = NULL;
 	}
-	return status;
 }

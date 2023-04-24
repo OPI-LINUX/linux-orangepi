@@ -263,7 +263,7 @@ static int b53_mmap_probe_of(struct platform_device *pdev,
 		if (of_property_read_u32(of_port, "reg", &reg))
 			continue;
 
-		if (reg < B53_CPU_PORT)
+		if (reg < B53_N_PORTS)
 			pdata->enabled_ports |= BIT(reg);
 	}
 
@@ -315,8 +315,6 @@ static int b53_mmap_remove(struct platform_device *pdev)
 
 	if (dev)
 		b53_switch_remove(dev);
-
-	platform_set_drvdata(pdev, NULL);
 
 	return 0;
 }

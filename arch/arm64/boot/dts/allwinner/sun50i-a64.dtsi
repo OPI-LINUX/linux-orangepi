@@ -4,6 +4,7 @@
 //    Copyright (C) 2015 Jens Kuske <jenskuske@gmail.com>
 
 #include <dt-bindings/clock/sun50i-a64-ccu.h>
+#include <dt-bindings/clock/sun6i-rtc.h>
 #include <dt-bindings/clock/sun8i-de2.h>
 #include <dt-bindings/clock/sun8i-r-ccu.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
@@ -146,13 +147,6 @@
 		method = "smc";
 	};
 
-	scpi_protocol: scpi {
-		compatible = "arm,scpi";
-		mboxes = <&msgbox 2>, <&msgbox 3>;
-		mbox-names = "tx", "rx";
-		shmem = <&scpi_sram>;
-	};
-
 	sound: sound {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -179,24 +173,6 @@
 			link0_codec: codec {
 				sound-dai = <&codec 0>;
 			};
-		};
-	};
-
-	sound_hdmi: sound_hdmi {
-		compatible = "simple-audio-card";
-		simple-audio-card,format = "i2s";
-		simple-audio-card,name = "allwinner-hdmi";
-		simple-audio-card,mclk-fs = <128>;
-		simple-audio-card,frame-inversion;
-
-		simple-audio-card,codec {
-			sound-dai = <&hdmi>;
-		};
-
-		simple-audio-card,cpu {
-			sound-dai = <&i2s2>;
-			dai-tdm-slot-num = <2>;
-			dai-tdm-slot-width = <32>;
 		};
 	};
 
@@ -384,19 +360,6 @@
 			#address-cells = <1>;
 			#size-cells = <1>;
 			ranges;
-
-			sram_a2: sram@40000 {
-				compatible = "mmio-sram";
-				reg = <0x00040000 0x14000>;
-				#address-cells = <1>;
-				#size-cells = <1>;
-				ranges = <0 0x00040000 0x14000>;
-
-				scpi_sram: scpi-sram@13c00 {
-					compatible = "arm,scp-shmem";
-					reg = <0x13c00 0x200>;
-				};
-			};
 
 			sram_c: sram@18000 {
 				compatible = "mmio-sram";
@@ -698,9 +661,8 @@
 		ccu: clock@1c20000 {
 			compatible = "allwinner,sun50i-a64-ccu";
 			reg = <0x01c20000 0x400>;
-			clocks = <&osc24M>, <&rtc 0>;
+			clocks = <&osc24M>, <&rtc CLK_OSC32K>;
 			clock-names = "hosc", "losc";
-			protected-clocks = <CLK_BUS_MSGBOX>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
 		};
@@ -712,7 +674,8 @@
 			interrupts = <GIC_SPI 11 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 17 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ccu CLK_BUS_PIO>, <&osc24M>, <&rtc 0>;
+			clocks = <&ccu CLK_BUS_PIO>, <&osc24M>,
+				 <&rtc CLK_OSC32K>;
 			clock-names = "apb", "hosc", "losc";
 			gpio-controller;
 			#gpio-cells = <3>;
@@ -952,6 +915,7 @@
 			resets = <&ccu RST_BUS_I2S2>;
 			dma-names = "rx", "tx";
 			dmas = <&dma 27>, <&dma 27>;
+			status = "disabled";
 		};
 
 		dai: dai@1c22c00 {
@@ -1258,14 +1222,13 @@
 		};
 
 		hdmi: hdmi@1ee0000 {
-			#sound-dai-cells = <0>;
 			compatible = "allwinner,sun50i-a64-dw-hdmi",
 				     "allwinner,sun8i-a83t-dw-hdmi";
 			reg = <0x01ee0000 0x10000>;
 			reg-io-width = <1>;
 			interrupts = <GIC_SPI 88 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&ccu CLK_BUS_HDMI>, <&ccu CLK_HDMI_DDC>,
-				 <&ccu CLK_HDMI>, <&rtc 0>;
+				 <&ccu CLK_HDMI>, <&rtc CLK_OSC32K>;
 			clock-names = "iahb", "isfr", "tmds", "cec";
 			resets = <&ccu RST_BUS_HDMI1>;
 			reset-names = "ctrl";
@@ -1326,10 +1289,9 @@
 		r_ccu: clock@1f01400 {
 			compatible = "allwinner,sun50i-a64-r-ccu";
 			reg = <0x01f01400 0x100>;
-			clocks = <&osc24M>, <&rtc 0>, <&rtc 2>,
+			clocks = <&osc24M>, <&rtc CLK_OSC32K>, <&rtc CLK_IOSC>,
 				 <&ccu CLK_PLL_PERIPH0>;
 			clock-names = "hosc", "losc", "iosc", "pll-periph";
-			protected-clocks = <CLK_APB0_TWD>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
 		};

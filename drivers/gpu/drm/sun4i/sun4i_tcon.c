@@ -8,6 +8,7 @@
 
 #include <linux/component.h>
 #include <linux/ioport.h>
+#include <linux/media-bus-format.h>
 #include <linux/module.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
@@ -1265,6 +1266,10 @@ static int sun4i_tcon_bind(struct device *dev, struct device *master,
 		if (ret < 0)
 			goto err_free_dotclock;
 	}
+
+	regmap_update_bits(tcon->regs, SUN4I_TCON_GCTL_REG,
+			   SUN4I_TCON_GCTL_PAD_SEL,
+			   SUN4I_TCON_GCTL_PAD_SEL);
 
 	if (tcon->quirks->needs_de_be_mux) {
 		/*

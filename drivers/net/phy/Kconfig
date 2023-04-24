@@ -47,7 +47,6 @@ config LED_TRIGGER_PHY
 
 config FIXED_PHY
 	tristate "MDIO Bus/PHY emulation with fixed speed/link PHYs"
-	depends on PHYLIB
 	select SWPHY
 	help
 	  Adds the platform "fixed" MDIO Bus to cover the boards that use
@@ -111,13 +110,14 @@ config AX88796B_PHY
 config BROADCOM_PHY
 	tristate "Broadcom 54XX PHYs"
 	select BCM_NET_PHYLIB
+	select BCM_NET_PHYPTP if NETWORK_PHY_TIMESTAMPING
+	depends on PTP_1588_CLOCK_OPTIONAL
 	help
 	  Currently supports the BCM5411, BCM5421, BCM5461, BCM54616S, BCM5464,
 	  BCM5481, BCM54810 and BCM5482 PHYs.
 
 config BCM54140_PHY
 	tristate "Broadcom BCM54140 PHY"
-	depends on PHYLIB
 	depends on HWMON || HWMON=n
 	select BCM_NET_PHYLIB
 	help
@@ -142,7 +142,6 @@ config BCM7XXX_PHY
 
 config BCM84881_PHY
 	tristate "Broadcom BCM84881 PHY"
-	depends on PHYLIB
 	help
 	  Support the Broadcom BCM84881 PHY.
 
@@ -165,6 +164,9 @@ config BCM_CYGNUS_PHY
 	  BCM58303 & BCM58305 Broadcom Cygnus SoCs.
 
 config BCM_NET_PHYLIB
+	tristate
+
+config BCM_NET_PHYPTP
 	tristate
 
 config CICADA_PHY
@@ -223,6 +225,8 @@ config MARVELL_88X2222_PHY
 
 config MAXLINEAR_GPHY
 	tristate "Maxlinear Ethernet PHYs"
+	select POLYNOMIAL if HWMON
+	depends on HWMON || HWMON=n
 	help
 	  Support for the Maxlinear GPY115, GPY211, GPY212, GPY215,
 	  GPY241, GPY245 PHYs.
@@ -260,7 +264,7 @@ config MOTORCOMM_PHY
 	tristate "Motorcomm PHYs"
 	help
 	  Enables support for Motorcomm network PHYs.
-	  Currently supports the YT8511 gigabit PHY.
+	  Currently supports the YT8511, YT8521, YT8531S Gigabit Ethernet PHYs.
 
 config NATIONAL_PHY
 	tristate "National Semiconductor PHYs"

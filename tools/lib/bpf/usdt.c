@@ -282,7 +282,7 @@ struct usdt_manager *usdt_manager_new(struct bpf_object *obj)
 	 * If this is not supported, USDTs with semaphores will not be supported.
 	 * Added in: a6ca88b241d5 ("trace_uprobe: support reference counter in fd-based uprobe")
 	 */
-	man->has_sema_refcnt = access(ref_ctr_sysfs_path, F_OK) == 0;
+	man->has_sema_refcnt = faccessat(AT_FDCWD, ref_ctr_sysfs_path, F_OK, AT_EACCESS) == 0;
 
 	return man;
 }
@@ -441,7 +441,7 @@ static int parse_elf_segs(Elf *elf, const char *path, struct elf_seg **segs, siz
 	return 0;
 }
 
-static int parse_lib_segs(int pid, const char *lib_path, struct elf_seg **segs, size_t *seg_cnt)
+static int parse_vma_segs(int pid, const char *lib_path, struct elf_seg **segs, size_t *seg_cnt)
 {
 	char path[PATH_MAX], line[PATH_MAX], mode[16];
 	size_t seg_start, seg_end, seg_off;
@@ -531,35 +531,40 @@ err_out:
 	return err;
 }
 
-static struct elf_seg *find_elf_seg(struct elf_seg *segs, size_t seg_cnt, long addr, bool relative)
+static struct elf_seg *find_elf_seg(struct elf_seg *segs, size_t seg_cnt, long virtaddr)
 {
 	struct elf_seg *seg;
 	int i;
 
-	if (relative) {
-		/* for shared libraries, address is relative offset and thus
-		 * should be fall within logical offset-based range of
-		 * [offset_start, offset_end)
-		 */
-		for (i = 0, seg = segs; i < seg_cnt; i++, seg++) {
-			if (seg->offset <= addr && addr < seg->offset + (seg->end - seg->start))
-				return seg;
-		}
-	} else {
-		/* for binaries, address is absolute and thus should be within
-		 * absolute address range of [seg_start, seg_end)
-		 */
-		for (i = 0, seg = segs; i < seg_cnt; i++, seg++) {
-			if (seg->start <= addr && addr < seg->end)
-				return seg;
-		}
+	/* for ELF binaries (both executables and shared libraries), we are
+	 * given virtual address (absolute for executables, relative for
+	 * libraries) which should match address range of [seg_start, seg_end)
+	 */
+	for (i = 0, seg = segs; i < seg_cnt; i++, seg++) {
+		if (seg->start <= virtaddr && virtaddr < seg->end)
+			return seg;
 	}
-
 	return NULL;
 }
 
-static int parse_usdt_note(Elf *elf, const char *path, long base_addr,
-			   GElf_Nhdr *nhdr, const char *data, size_t name_off, size_t desc_off,
+static struct elf_seg *find_vma_seg(struct elf_seg *segs, size_t seg_cnt, long offset)
+{
+	struct elf_seg *seg;
+	int i;
+
+	/* for VMA segments from /proc/<pid>/maps file, provided "address" is
+	 * actually a file offset, so should be fall within logical
+	 * offset-based range of [offset_start, offset_end)
+	 */
+	for (i = 0, seg = segs; i < seg_cnt; i++, seg++) {
+		if (seg->offset <= offset && offset < seg->offset + (seg->end - seg->start))
+			return seg;
+	}
+	return NULL;
+}
+
+static int parse_usdt_note(Elf *elf, const char *path, GElf_Nhdr *nhdr,
+			   const char *data, size_t name_off, size_t desc_off,
 			   struct usdt_note *usdt_note);
 
 static int parse_usdt_spec(struct usdt_spec *spec, const struct usdt_note *note, __u64 usdt_cookie);
@@ -568,8 +573,8 @@ static int collect_usdt_targets(struct usdt_manager *man, Elf *elf, const char *
 				const char *usdt_provider, const char *usdt_name, __u64 usdt_cookie,
 				struct usdt_target **out_targets, size_t *out_target_cnt)
 {
-	size_t off, name_off, desc_off, seg_cnt = 0, lib_seg_cnt = 0, target_cnt = 0;
-	struct elf_seg *segs = NULL, *lib_segs = NULL;
+	size_t off, name_off, desc_off, seg_cnt = 0, vma_seg_cnt = 0, target_cnt = 0;
+	struct elf_seg *segs = NULL, *vma_segs = NULL;
 	struct usdt_target *targets = NULL, *target;
 	long base_addr = 0;
 	Elf_Scn *notes_scn, *base_scn;
@@ -613,8 +618,7 @@ static int collect_usdt_targets(struct usdt_manager *man, Elf *elf, const char *
 		struct elf_seg *seg = NULL;
 		void *tmp;
 
-		err = parse_usdt_note(elf, path, base_addr, &nhdr,
-				      data->d_buf, name_off, desc_off, &note);
+		err = parse_usdt_note(elf, path, &nhdr, data->d_buf, name_off, desc_off, &note);
 		if (err)
 			goto err_out;
 
@@ -648,36 +652,33 @@ static int collect_usdt_targets(struct usdt_manager *man, Elf *elf, const char *
 		 *
 		 *   [0] https://sourceware.org/systemtap/wiki/UserSpaceProbeImplementation
 		 */
-		usdt_rel_ip = usdt_abs_ip = note.loc_addr;
-		if (base_addr) {
+		usdt_abs_ip = note.loc_addr;
+		if (base_addr)
 			usdt_abs_ip += base_addr - note.base_addr;
-			usdt_rel_ip += base_addr - note.base_addr;
+
+		/* When attaching uprobes (which is what USDTs basically are)
+		 * kernel expects file offset to be specified, not a relative
+		 * virtual address, so we need to translate virtual address to
+		 * file offset, for both ET_EXEC and ET_DYN binaries.
+		 */
+		seg = find_elf_seg(segs, seg_cnt, usdt_abs_ip);
+		if (!seg) {
+			err = -ESRCH;
+			pr_warn("usdt: failed to find ELF program segment for '%s:%s' in '%s' at IP 0x%lx\n",
+				usdt_provider, usdt_name, path, usdt_abs_ip);
+			goto err_out;
 		}
+		if (!seg->is_exec) {
+			err = -ESRCH;
+			pr_warn("usdt: matched ELF binary '%s' segment [0x%lx, 0x%lx) for '%s:%s' at IP 0x%lx is not executable\n",
+				path, seg->start, seg->end, usdt_provider, usdt_name,
+				usdt_abs_ip);
+			goto err_out;
+		}
+		/* translate from virtual address to file offset */
+		usdt_rel_ip = usdt_abs_ip - seg->start + seg->offset;
 
-		if (ehdr.e_type == ET_EXEC) {
-			/* When attaching uprobes (which what USDTs basically
-			 * are) kernel expects a relative IP to be specified,
-			 * so if we are attaching to an executable ELF binary
-			 * (i.e., not a shared library), we need to calculate
-			 * proper relative IP based on ELF's load address
-			 */
-			seg = find_elf_seg(segs, seg_cnt, usdt_abs_ip, false /* relative */);
-			if (!seg) {
-				err = -ESRCH;
-				pr_warn("usdt: failed to find ELF program segment for '%s:%s' in '%s' at IP 0x%lx\n",
-					usdt_provider, usdt_name, path, usdt_abs_ip);
-				goto err_out;
-			}
-			if (!seg->is_exec) {
-				err = -ESRCH;
-				pr_warn("usdt: matched ELF binary '%s' segment [0x%lx, 0x%lx) for '%s:%s' at IP 0x%lx is not executable\n",
-					path, seg->start, seg->end, usdt_provider, usdt_name,
-					usdt_abs_ip);
-				goto err_out;
-			}
-
-			usdt_rel_ip = usdt_abs_ip - (seg->start - seg->offset);
-		} else if (!man->has_bpf_cookie) { /* ehdr.e_type == ET_DYN */
+		if (ehdr.e_type == ET_DYN && !man->has_bpf_cookie) {
 			/* If we don't have BPF cookie support but need to
 			 * attach to a shared library, we'll need to know and
 			 * record absolute addresses of attach points due to
@@ -697,9 +698,9 @@ static int collect_usdt_targets(struct usdt_manager *man, Elf *elf, const char *
 				goto err_out;
 			}
 
-			/* lib_segs are lazily initialized only if necessary */
-			if (lib_seg_cnt == 0) {
-				err = parse_lib_segs(pid, path, &lib_segs, &lib_seg_cnt);
+			/* vma_segs are lazily initialized only if necessary */
+			if (vma_seg_cnt == 0) {
+				err = parse_vma_segs(pid, path, &vma_segs, &vma_seg_cnt);
 				if (err) {
 					pr_warn("usdt: failed to get memory segments in PID %d for shared library '%s': %d\n",
 						pid, path, err);
@@ -707,7 +708,7 @@ static int collect_usdt_targets(struct usdt_manager *man, Elf *elf, const char *
 				}
 			}
 
-			seg = find_elf_seg(lib_segs, lib_seg_cnt, usdt_rel_ip, true /* relative */);
+			seg = find_vma_seg(vma_segs, vma_seg_cnt, usdt_rel_ip);
 			if (!seg) {
 				err = -ESRCH;
 				pr_warn("usdt: failed to find shared lib memory segment for '%s:%s' in '%s' at relative IP 0x%lx\n",
@@ -715,7 +716,7 @@ static int collect_usdt_targets(struct usdt_manager *man, Elf *elf, const char *
 				goto err_out;
 			}
 
-			usdt_abs_ip = seg->start + (usdt_rel_ip - seg->offset);
+			usdt_abs_ip = seg->start - seg->offset + usdt_rel_ip;
 		}
 
 		pr_debug("usdt: probe for '%s:%s' in %s '%s': addr 0x%lx base 0x%lx (resolved abs_ip 0x%lx rel_ip 0x%lx) args '%s' in segment [0x%lx, 0x%lx) at offset 0x%lx\n",
@@ -723,7 +724,7 @@ static int collect_usdt_targets(struct usdt_manager *man, Elf *elf, const char *
 			 note.loc_addr, note.base_addr, usdt_abs_ip, usdt_rel_ip, note.args,
 			 seg ? seg->start : 0, seg ? seg->end : 0, seg ? seg->offset : 0);
 
-		/* Adjust semaphore address to be a relative offset */
+		/* Adjust semaphore address to be a file offset */
 		if (note.sema_addr) {
 			if (!man->has_sema_refcnt) {
 				pr_warn("usdt: kernel doesn't support USDT semaphore refcounting for '%s:%s' in '%s'\n",
@@ -732,7 +733,7 @@ static int collect_usdt_targets(struct usdt_manager *man, Elf *elf, const char *
 				goto err_out;
 			}
 
-			seg = find_elf_seg(segs, seg_cnt, note.sema_addr, false /* relative */);
+			seg = find_elf_seg(segs, seg_cnt, note.sema_addr);
 			if (!seg) {
 				err = -ESRCH;
 				pr_warn("usdt: failed to find ELF loadable segment with semaphore of '%s:%s' in '%s' at 0x%lx\n",
@@ -747,7 +748,7 @@ static int collect_usdt_targets(struct usdt_manager *man, Elf *elf, const char *
 				goto err_out;
 			}
 
-			usdt_sema_off = note.sema_addr - (seg->start - seg->offset);
+			usdt_sema_off = note.sema_addr - seg->start + seg->offset;
 
 			pr_debug("usdt: sema  for '%s:%s' in %s '%s': addr 0x%lx base 0x%lx (resolved 0x%lx) in segment [0x%lx, 0x%lx] at offset 0x%lx\n",
 				 usdt_provider, usdt_name, ehdr.e_type == ET_EXEC ? "exec" : "lib ",
@@ -770,7 +771,7 @@ static int collect_usdt_targets(struct usdt_manager *man, Elf *elf, const char *
 		target->rel_ip = usdt_rel_ip;
 		target->sema_off = usdt_sema_off;
 
-		/* notes->args references strings from Elf itself, so they can
+		/* notes.args references strings from Elf itself, so they can
 		 * be referenced safely until elf_end() call
 		 */
 		target->spec_str = note.args;
@@ -788,7 +789,7 @@ static int collect_usdt_targets(struct usdt_manager *man, Elf *elf, const char *
 
 err_out:
 	free(segs);
-	free(lib_segs);
+	free(vma_segs);
 	if (err < 0)
 		free(targets);
 	return err;
@@ -872,31 +873,27 @@ static void bpf_link_usdt_dealloc(struct bpf_link *link)
 	free(usdt_link);
 }
 
-static size_t specs_hash_fn(const void *key, void *ctx)
+static size_t specs_hash_fn(long key, void *ctx)
 {
-	const char *s = key;
-
-	return str_hash(s);
+	return str_hash((char *)key);
 }
 
-static bool specs_equal_fn(const void *key1, const void *key2, void *ctx)
+static bool specs_equal_fn(long key1, long key2, void *ctx)
 {
-	const char *s1 = key1;
-	const char *s2 = key2;
-
-	return strcmp(s1, s2) == 0;
+	return strcmp((char *)key1, (char *)key2) == 0;
 }
 
 static int allocate_spec_id(struct usdt_manager *man, struct hashmap *specs_hash,
 			    struct bpf_link_usdt *link, struct usdt_target *target,
 			    int *spec_id, bool *is_new)
 {
-	void *tmp;
+	long tmp;
+	void *new_ids;
 	int err;
 
 	/* check if we already allocated spec ID for this spec string */
 	if (hashmap__find(specs_hash, target->spec_str, &tmp)) {
-		*spec_id = (long)tmp;
+		*spec_id = tmp;
 		*is_new = false;
 		return 0;
 	}
@@ -904,17 +901,17 @@ static int allocate_spec_id(struct usdt_manager *man, struct hashmap *specs_hash
 	/* otherwise it's a new ID that needs to be set up in specs map and
 	 * returned back to usdt_manager when USDT link is detached
 	 */
-	tmp = libbpf_reallocarray(link->spec_ids, link->spec_cnt + 1, sizeof(*link->spec_ids));
-	if (!tmp)
+	new_ids = libbpf_reallocarray(link->spec_ids, link->spec_cnt + 1, sizeof(*link->spec_ids));
+	if (!new_ids)
 		return -ENOMEM;
-	link->spec_ids = tmp;
+	link->spec_ids = new_ids;
 
 	/* get next free spec ID, giving preference to free list, if not empty */
 	if (man->free_spec_cnt) {
 		*spec_id = man->free_spec_ids[man->free_spec_cnt - 1];
 
 		/* cache spec ID for current spec string for future lookups */
-		err = hashmap__add(specs_hash, target->spec_str, (void *)(long)*spec_id);
+		err = hashmap__add(specs_hash, target->spec_str, *spec_id);
 		if (err)
 			 return err;
 
@@ -927,7 +924,7 @@ static int allocate_spec_id(struct usdt_manager *man, struct hashmap *specs_hash
 		*spec_id = man->next_free_spec_id;
 
 		/* cache spec ID for current spec string for future lookups */
-		err = hashmap__add(specs_hash, target->spec_str, (void *)(long)*spec_id);
+		err = hashmap__add(specs_hash, target->spec_str, *spec_id);
 		if (err)
 			 return err;
 
@@ -1089,8 +1086,8 @@ err_out:
 /* Parse out USDT ELF note from '.note.stapsdt' section.
  * Logic inspired by perf's code.
  */
-static int parse_usdt_note(Elf *elf, const char *path, long base_addr,
-			   GElf_Nhdr *nhdr, const char *data, size_t name_off, size_t desc_off,
+static int parse_usdt_note(Elf *elf, const char *path, GElf_Nhdr *nhdr,
+			   const char *data, size_t name_off, size_t desc_off,
 			   struct usdt_note *note)
 {
 	const char *provider, *name, *args;
@@ -1224,26 +1221,32 @@ static int calc_pt_regs_off(const char *reg_name)
 
 static int parse_usdt_arg(const char *arg_str, int arg_num, struct usdt_arg_spec *arg)
 {
-	char *reg_name = NULL;
+	char reg_name[16];
 	int arg_sz, len, reg_off;
 	long off;
 
-	if (sscanf(arg_str, " %d @ %ld ( %%%m[^)] ) %n", &arg_sz, &off, &reg_name, &len) == 3) {
+	if (sscanf(arg_str, " %d @ %ld ( %%%15[^)] ) %n", &arg_sz, &off, reg_name, &len) == 3) {
 		/* Memory dereference case, e.g., -4@-20(%rbp) */
 		arg->arg_type = USDT_ARG_REG_DEREF;
 		arg->val_off = off;
 		reg_off = calc_pt_regs_off(reg_name);
-		free(reg_name);
 		if (reg_off < 0)
 			return reg_off;
 		arg->reg_off = reg_off;
-	} else if (sscanf(arg_str, " %d @ %%%ms %n", &arg_sz, &reg_name, &len) == 2) {
+	} else if (sscanf(arg_str, " %d @ ( %%%15[^)] ) %n", &arg_sz, reg_name, &len) == 2) {
+		/* Memory dereference case without offset, e.g., 8@(%rsp) */
+		arg->arg_type = USDT_ARG_REG_DEREF;
+		arg->val_off = 0;
+		reg_off = calc_pt_regs_off(reg_name);
+		if (reg_off < 0)
+			return reg_off;
+		arg->reg_off = reg_off;
+	} else if (sscanf(arg_str, " %d @ %%%15s %n", &arg_sz, reg_name, &len) == 2) {
 		/* Register read case, e.g., -4@%eax */
 		arg->arg_type = USDT_ARG_REG;
 		arg->val_off = 0;
 
 		reg_off = calc_pt_regs_off(reg_name);
-		free(reg_name);
 		if (reg_off < 0)
 			return reg_off;
 		arg->reg_off = reg_off;
@@ -1347,25 +1350,23 @@ static int calc_pt_regs_off(const char *reg_name)
 
 static int parse_usdt_arg(const char *arg_str, int arg_num, struct usdt_arg_spec *arg)
 {
-	char *reg_name = NULL;
+	char reg_name[16];
 	int arg_sz, len, reg_off;
 	long off;
 
-	if (sscanf(arg_str, " %d @ \[ %m[a-z0-9], %ld ] %n", &arg_sz, &reg_name, &off, &len) == 3) {
+	if (sscanf(arg_str, " %d @ \[ %15[a-z0-9], %ld ] %n", &arg_sz, reg_name, &off, &len) == 3) {
 		/* Memory dereference case, e.g., -4@[sp, 96] */
 		arg->arg_type = USDT_ARG_REG_DEREF;
 		arg->val_off = off;
 		reg_off = calc_pt_regs_off(reg_name);
-		free(reg_name);
 		if (reg_off < 0)
 			return reg_off;
 		arg->reg_off = reg_off;
-	} else if (sscanf(arg_str, " %d @ \[ %m[a-z0-9] ] %n", &arg_sz, &reg_name, &len) == 2) {
+	} else if (sscanf(arg_str, " %d @ \[ %15[a-z0-9] ] %n", &arg_sz, reg_name, &len) == 2) {
 		/* Memory dereference case, e.g., -4@[sp] */
 		arg->arg_type = USDT_ARG_REG_DEREF;
 		arg->val_off = 0;
 		reg_off = calc_pt_regs_off(reg_name);
-		free(reg_name);
 		if (reg_off < 0)
 			return reg_off;
 		arg->reg_off = reg_off;
@@ -1374,12 +1375,11 @@ static int parse_usdt_arg(const char *arg_str, int arg_num, struct usdt_arg_spec
 		arg->arg_type = USDT_ARG_CONST;
 		arg->val_off = off;
 		arg->reg_off = 0;
-	} else if (sscanf(arg_str, " %d @ %m[a-z0-9] %n", &arg_sz, &reg_name, &len) == 2) {
+	} else if (sscanf(arg_str, " %d @ %15[a-z0-9] %n", &arg_sz, reg_name, &len) == 2) {
 		/* Register read case, e.g., -8@x4 */
 		arg->arg_type = USDT_ARG_REG;
 		arg->val_off = 0;
 		reg_off = calc_pt_regs_off(reg_name);
-		free(reg_name);
 		if (reg_off < 0)
 			return reg_off;
 		arg->reg_off = reg_off;
@@ -1458,16 +1458,15 @@ static int calc_pt_regs_off(const char *reg_name)
 
 static int parse_usdt_arg(const char *arg_str, int arg_num, struct usdt_arg_spec *arg)
 {
-	char *reg_name = NULL;
+	char reg_name[16];
 	int arg_sz, len, reg_off;
 	long off;
 
-	if (sscanf(arg_str, " %d @ %ld ( %m[a-z0-9] ) %n", &arg_sz, &off, &reg_name, &len) == 3) {
+	if (sscanf(arg_str, " %d @ %ld ( %15[a-z0-9] ) %n", &arg_sz, &off, reg_name, &len) == 3) {
 		/* Memory dereference case, e.g., -8@-88(s0) */
 		arg->arg_type = USDT_ARG_REG_DEREF;
 		arg->val_off = off;
 		reg_off = calc_pt_regs_off(reg_name);
-		free(reg_name);
 		if (reg_off < 0)
 			return reg_off;
 		arg->reg_off = reg_off;
@@ -1476,12 +1475,11 @@ static int parse_usdt_arg(const char *arg_str, int arg_num, struct usdt_arg_spec
 		arg->arg_type = USDT_ARG_CONST;
 		arg->val_off = off;
 		arg->reg_off = 0;
-	} else if (sscanf(arg_str, " %d @ %m[a-z0-9] %n", &arg_sz, &reg_name, &len) == 2) {
+	} else if (sscanf(arg_str, " %d @ %15[a-z0-9] %n", &arg_sz, reg_name, &len) == 2) {
 		/* Register read case, e.g., -8@a1 */
 		arg->arg_type = USDT_ARG_REG;
 		arg->val_off = 0;
 		reg_off = calc_pt_regs_off(reg_name);
-		free(reg_name);
 		if (reg_off < 0)
 			return reg_off;
 		arg->reg_off = reg_off;

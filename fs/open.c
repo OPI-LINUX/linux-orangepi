@@ -54,7 +54,7 @@ int do_truncate(struct user_namespace *mnt_userns, struct dentry *dentry,
 	}
 
 	/* Remove suid, sgid, and file capabilities on truncate too */
-	ret = dentry_needs_remove_privs(dentry);
+	ret = dentry_needs_remove_privs(mnt_userns, dentry);
 	if (ret < 0)
 		return ret;
 	if (ret)
@@ -188,7 +188,7 @@ long do_sys_ftruncate(unsigned int fd, loff_t length, int small)
 	if (IS_APPEND(file_inode(f.file)))
 		goto out_putf;
 	sb_start_write(inode->i_sb);
-	error = security_path_truncate(&f.file->f_path);
+	error = security_file_truncate(f.file);
 	if (!error)
 		error = do_truncate(file_mnt_user_ns(f.file), dentry, length,
 				    ATTR_MTIME | ATTR_CTIME, f.file);
@@ -663,6 +663,42 @@ SYSCALL_DEFINE2(chmod, const char __user *, filename, umode_t, mode)
 	return do_fchmodat(AT_FDCWD, filename, mode);
 }
 
+/**
+ * setattr_vfsuid - check and set ia_fsuid attribute
+ * @kuid: new inode owner
+ *
+ * Check whether @kuid is valid and if so generate and set vfsuid_t in
+ * ia_vfsuid.
+ *
+ * Return: true if @kuid is valid, false if not.
+ */
+static inline bool setattr_vfsuid(struct iattr *attr, kuid_t kuid)
+{
+	if (!uid_valid(kuid))
+		return false;
+	attr->ia_valid |= ATTR_UID;
+	attr->ia_vfsuid = VFSUIDT_INIT(kuid);
+	return true;
+}
+
+/**
+ * setattr_vfsgid - check and set ia_fsgid attribute
+ * @kgid: new inode owner
+ *
+ * Check whether @kgid is valid and if so generate and set vfsgid_t in
+ * ia_vfsgid.
+ *
+ * Return: true if @kgid is valid, false if not.
+ */
+static inline bool setattr_vfsgid(struct iattr *attr, kgid_t kgid)
+{
+	if (!gid_valid(kgid))
+		return false;
+	attr->ia_valid |= ATTR_GID;
+	attr->ia_vfsgid = VFSGIDT_INIT(kgid);
+	return true;
+}
+
 int chown_common(const struct path *path, uid_t user, gid_t group)
 {
 	struct user_namespace *mnt_userns, *fs_userns;
@@ -678,28 +714,24 @@ int chown_common(const struct path *path, uid_t user, gid_t group)
 
 	mnt_userns = mnt_user_ns(path->mnt);
 	fs_userns = i_user_ns(inode);
-	uid = mapped_kuid_user(mnt_userns, fs_userns, uid);
-	gid = mapped_kgid_user(mnt_userns, fs_userns, gid);
 
 retry_deleg:
+	newattrs.ia_vfsuid = INVALID_VFSUID;
+	newattrs.ia_vfsgid = INVALID_VFSGID;
 	newattrs.ia_valid =  ATTR_CTIME;
-	if (user != (uid_t) -1) {
-		if (!uid_valid(uid))
-			return -EINVAL;
-		newattrs.ia_valid |= ATTR_UID;
-		newattrs.ia_uid = uid;
-	}
-	if (group != (gid_t) -1) {
-		if (!gid_valid(gid))
-			return -EINVAL;
-		newattrs.ia_valid |= ATTR_GID;
-		newattrs.ia_gid = gid;
-	}
-	if (!S_ISDIR(inode->i_mode))
-		newattrs.ia_valid |=
-			ATTR_KILL_SUID | ATTR_KILL_SGID | ATTR_KILL_PRIV;
+	if ((user != (uid_t)-1) && !setattr_vfsuid(&newattrs, uid))
+		return -EINVAL;
+	if ((group != (gid_t)-1) && !setattr_vfsgid(&newattrs, gid))
+		return -EINVAL;
 	inode_lock(inode);
-	error = security_path_chown(path, uid, gid);
+	if (!S_ISDIR(inode->i_mode))
+		newattrs.ia_valid |= ATTR_KILL_SUID | ATTR_KILL_PRIV |
+				     setattr_should_drop_sgid(mnt_userns, inode);
+	/* Continue to send actual fs values, not the mount values. */
+	error = security_path_chown(
+		path,
+		from_vfsuid(mnt_userns, fs_userns, newattrs.ia_vfsuid),
+		from_vfsgid(mnt_userns, fs_userns, newattrs.ia_vfsgid));
 	if (!error)
 		error = notify_change(mnt_userns, path->dentry, &newattrs,
 				      &delegated_inode);
@@ -810,7 +842,9 @@ static int do_dentry_open(struct file *f,
 		return 0;
 	}
 
-	if (f->f_mode & FMODE_WRITE && !special_file(inode->i_mode)) {
+	if ((f->f_mode & (FMODE_READ | FMODE_WRITE)) == FMODE_READ) {
+		i_readcount_inc(inode);
+	} else if (f->f_mode & FMODE_WRITE && !special_file(inode->i_mode)) {
 		error = get_write_access(inode);
 		if (unlikely(error))
 			goto cleanup_file;
@@ -850,18 +884,19 @@ static int do_dentry_open(struct file *f,
 			goto cleanup_all;
 	}
 	f->f_mode |= FMODE_OPENED;
-	if ((f->f_mode & (FMODE_READ | FMODE_WRITE)) == FMODE_READ)
-		i_readcount_inc(inode);
 	if ((f->f_mode & FMODE_READ) &&
 	     likely(f->f_op->read || f->f_op->read_iter))
 		f->f_mode |= FMODE_CAN_READ;
 	if ((f->f_mode & FMODE_WRITE) &&
 	     likely(f->f_op->write || f->f_op->write_iter))
 		f->f_mode |= FMODE_CAN_WRITE;
+	if ((f->f_mode & FMODE_LSEEK) && !f->f_op->llseek)
+		f->f_mode &= ~FMODE_LSEEK;
 	if (f->f_mapping->a_ops && f->f_mapping->a_ops->direct_IO)
 		f->f_mode |= FMODE_CAN_ODIRECT;
 
 	f->f_flags &= ~(O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC);
+	f->f_iocb_flags = iocb_flags(f);
 
 	file_ra_state_init(&f->f_ra, f->f_mapping->host->i_mapping);
 
@@ -902,10 +937,7 @@ cleanup_all:
 	if (WARN_ON_ONCE(error > 0))
 		error = -EINVAL;
 	fops_put(f->f_op);
-	if (f->f_mode & FMODE_WRITER) {
-		put_write_access(inode);
-		__mnt_drop_write(f->f_path.mnt);
-	}
+	put_file_access(f);
 cleanup_file:
 	path_put(&f->f_path);
 	f->f_path.mnt = NULL;
@@ -1379,8 +1411,9 @@ int filp_close(struct file *filp, fl_owner_t id)
 {
 	int retval = 0;
 
-	if (!file_count(filp)) {
-		printk(KERN_ERR "VFS: Close: file count is 0\n");
+	if (CHECK_DATA_CORRUPTION(file_count(filp) == 0,
+			"VFS: Close: file count is 0 (f_op=%ps)",
+			filp->f_op)) {
 		return 0;
 	}
 

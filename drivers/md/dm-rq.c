@@ -23,34 +23,33 @@ struct dm_rq_target_io {
 	union map_info info;
 	struct dm_stats_aux stats_aux;
 	unsigned long duration_jiffies;
-	unsigned n_sectors;
-	unsigned completed;
+	unsigned int n_sectors;
+	unsigned int completed;
 };
 
 #define DM_MQ_NR_HW_QUEUES 1
 #define DM_MQ_QUEUE_DEPTH 2048
-static unsigned dm_mq_nr_hw_queues = DM_MQ_NR_HW_QUEUES;
-static unsigned dm_mq_queue_depth = DM_MQ_QUEUE_DEPTH;
+static unsigned int dm_mq_nr_hw_queues = DM_MQ_NR_HW_QUEUES;
+static unsigned int dm_mq_queue_depth = DM_MQ_QUEUE_DEPTH;
 
 /*
  * Request-based DM's mempools' reserved IOs set by the user.
  */
 #define RESERVED_REQUEST_BASED_IOS	256
-static unsigned reserved_rq_based_ios = RESERVED_REQUEST_BASED_IOS;
+static unsigned int reserved_rq_based_ios = RESERVED_REQUEST_BASED_IOS;
 
-unsigned dm_get_reserved_rq_based_ios(void)
+unsigned int dm_get_reserved_rq_based_ios(void)
 {
 	return __dm_get_module_param(&reserved_rq_based_ios,
 				     RESERVED_REQUEST_BASED_IOS, DM_RESERVED_MAX_IOS);
 }
-EXPORT_SYMBOL_GPL(dm_get_reserved_rq_based_ios);
 
-static unsigned dm_get_blk_mq_nr_hw_queues(void)
+static unsigned int dm_get_blk_mq_nr_hw_queues(void)
 {
 	return __dm_get_module_param(&dm_mq_nr_hw_queues, 1, 32);
 }
 
-static unsigned dm_get_blk_mq_queue_depth(void)
+static unsigned int dm_get_blk_mq_queue_depth(void)
 {
 	return __dm_get_module_param(&dm_mq_queue_depth,
 				     DM_MQ_QUEUE_DEPTH, BLK_MQ_MAX_DEPTH);
@@ -239,7 +238,7 @@ static void dm_done(struct request *clone, blk_status_t error, bool mapped)
 		dm_requeue_original_request(tio, true);
 		break;
 	default:
-		DMWARN("unimplemented target endio return value: %d", r);
+		DMCRIT("unimplemented target endio return value: %d", r);
 		BUG();
 	}
 }
@@ -293,11 +292,13 @@ static void dm_kill_unmapped_request(struct request *rq, blk_status_t error)
 	dm_complete_request(rq, error);
 }
 
-static void end_clone_request(struct request *clone, blk_status_t error)
+static enum rq_end_io_ret end_clone_request(struct request *clone,
+					    blk_status_t error)
 {
 	struct dm_rq_target_io *tio = clone->end_io_data;
 
 	dm_complete_request(tio->orig, error);
+	return RQ_END_IO_NONE;
 }
 
 static int dm_rq_bio_constructor(struct bio *bio, struct bio *bio_orig,
@@ -408,7 +409,7 @@ static int map_request(struct dm_rq_target_io *tio)
 		dm_kill_unmapped_request(rq, BLK_STS_IOERR);
 		break;
 	default:
-		DMWARN("unimplemented target map return value: %d", r);
+		DMCRIT("unimplemented target map return value: %d", r);
 		BUG();
 	}
 

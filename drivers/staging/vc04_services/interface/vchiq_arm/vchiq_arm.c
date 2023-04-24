@@ -67,6 +67,8 @@ struct vchiq_state g_state;
 
 static struct platform_device *bcm2835_camera;
 static struct platform_device *bcm2835_audio;
+static struct platform_device *bcm2835_codec;
+static struct platform_device *vcsm_cma;
 
 struct vchiq_drvdata {
 	const unsigned int cache_line_size;
@@ -148,12 +150,11 @@ static unsigned int g_fragments_size;
 static char *g_fragments_base;
 static char *g_free_fragments;
 static struct semaphore g_free_fragments_sema;
-static struct device *g_dev;
 
 static DEFINE_SEMAPHORE(g_free_fragments_mutex);
 
 static enum vchiq_status
-vchiq_blocking_bulk_transfer(unsigned int handle, void *data,
+vchiq_blocking_bulk_transfer(struct vchiq_instance *instance, unsigned int handle, void *data,
 			     unsigned int size, enum vchiq_bulk_dir dir);
 
 static irqreturn_t
@@ -175,17 +176,17 @@ vchiq_doorbell_irq(int irq, void *dev_id)
 }
 
 static void
-cleanup_pagelistinfo(struct vchiq_pagelist_info *pagelistinfo)
+cleanup_pagelistinfo(struct vchiq_instance *instance, struct vchiq_pagelist_info *pagelistinfo)
 {
 	if (pagelistinfo->scatterlist_mapped) {
-		dma_unmap_sg(g_dev, pagelistinfo->scatterlist,
+		dma_unmap_sg(instance->state->dev, pagelistinfo->scatterlist,
 			     pagelistinfo->num_pages, pagelistinfo->dma_dir);
 	}
 
 	if (pagelistinfo->pages_need_release)
 		unpin_user_pages(pagelistinfo->pages, pagelistinfo->num_pages);
 
-	dma_free_coherent(g_dev, pagelistinfo->pagelist_buffer_size,
+	dma_free_coherent(instance->state->dev, pagelistinfo->pagelist_buffer_size,
 			  pagelistinfo->pagelist, pagelistinfo->dma_addr);
 }
 
@@ -212,7 +213,7 @@ is_adjacent_block(u32 *addrs, u32 addr, unsigned int k)
  */
 
 static struct vchiq_pagelist_info *
-create_pagelist(char *buf, char __user *ubuf,
+create_pagelist(struct vchiq_instance *instance, char *buf, char __user *ubuf,
 		size_t count, unsigned short type)
 {
 	struct pagelist *pagelist;
@@ -250,7 +251,7 @@ create_pagelist(char *buf, char __user *ubuf,
 	/* Allocate enough storage to hold the page pointers and the page
 	 * list
 	 */
-	pagelist = dma_alloc_coherent(g_dev, pagelist_size, &dma_addr,
+	pagelist = dma_alloc_coherent(instance->state->dev, pagelist_size, &dma_addr,
 				      GFP_KERNEL);
 
 	vchiq_log_trace(vchiq_arm_log_level, "%s - %pK", __func__, pagelist);
@@ -292,7 +293,7 @@ create_pagelist(char *buf, char __user *ubuf,
 			size_t bytes = PAGE_SIZE - off;
 
 			if (!pg) {
-				cleanup_pagelistinfo(pagelistinfo);
+				cleanup_pagelistinfo(instance, pagelistinfo);
 				return NULL;
 			}
 
@@ -315,7 +316,7 @@ create_pagelist(char *buf, char __user *ubuf,
 			/* This is probably due to the process being killed */
 			if (actual_pages > 0)
 				unpin_user_pages(pages, actual_pages);
-			cleanup_pagelistinfo(pagelistinfo);
+			cleanup_pagelistinfo(instance, pagelistinfo);
 			return NULL;
 		}
 		 /* release user pages */
@@ -338,13 +339,13 @@ create_pagelist(char *buf, char __user *ubuf,
 		count -= len;
 	}
 
-	dma_buffers = dma_map_sg(g_dev,
+	dma_buffers = dma_map_sg(instance->state->dev,
 				 scatterlist,
 				 num_pages,
 				 pagelistinfo->dma_dir);
 
 	if (dma_buffers == 0) {
-		cleanup_pagelistinfo(pagelistinfo);
+		cleanup_pagelistinfo(instance, pagelistinfo);
 		return NULL;
 	}
 
@@ -378,7 +379,7 @@ create_pagelist(char *buf, char __user *ubuf,
 		char *fragments;
 
 		if (down_interruptible(&g_free_fragments_sema)) {
-			cleanup_pagelistinfo(pagelistinfo);
+			cleanup_pagelistinfo(instance, pagelistinfo);
 			return NULL;
 		}
 
@@ -397,7 +398,7 @@ create_pagelist(char *buf, char __user *ubuf,
 }
 
 static void
-free_pagelist(struct vchiq_pagelist_info *pagelistinfo,
+free_pagelist(struct vchiq_instance *instance, struct vchiq_pagelist_info *pagelistinfo,
 	      int actual)
 {
 	struct pagelist *pagelist = pagelistinfo->pagelist;
@@ -411,7 +412,7 @@ free_pagelist(struct vchiq_pagelist_info *pagelistinfo,
 	 * NOTE: dma_unmap_sg must be called before the
 	 * cpu can touch any of the data/pages.
 	 */
-	dma_unmap_sg(g_dev, pagelistinfo->scatterlist,
+	dma_unmap_sg(instance->state->dev, pagelistinfo->scatterlist,
 		     pagelistinfo->num_pages, pagelistinfo->dma_dir);
 	pagelistinfo->scatterlist_mapped = 0;
 
@@ -460,7 +461,7 @@ free_pagelist(struct vchiq_pagelist_info *pagelistinfo,
 			set_page_dirty(pages[i]);
 	}
 
-	cleanup_pagelistinfo(pagelistinfo);
+	cleanup_pagelistinfo(instance, pagelistinfo);
 }
 
 int vchiq_platform_init(struct platform_device *pdev, struct vchiq_state *state)
@@ -519,7 +520,7 @@ int vchiq_platform_init(struct platform_device *pdev, struct vchiq_state *state)
 	*(char **)&g_fragments_base[i * g_fragments_size] = NULL;
 	sema_init(&g_free_fragments_sema, MAX_FRAGMENTS);
 
-	err = vchiq_init_state(state, vchiq_slot_zero);
+	err = vchiq_init_state(state, vchiq_slot_zero, dev);
 	if (err)
 		return err;
 
@@ -547,7 +548,6 @@ int vchiq_platform_init(struct platform_device *pdev, struct vchiq_state *state)
 		return err ? : -ENXIO;
 	}
 
-	g_dev = dev;
 	vchiq_log_info(vchiq_arm_log_level, "vchiq_init - done (slots %pK, phys %pad)",
 		       vchiq_slot_zero, &slot_phys);
 
@@ -604,6 +604,10 @@ static struct vchiq_arm_state *vchiq_platform_get_arm_state(struct vchiq_state *
 void
 remote_event_signal(struct remote_event *event)
 {
+	/*
+	 * Ensure that all writes to shared data structures have completed
+	 * before signalling the peer.
+	 */
 	wmb();
 
 	event->fired = 1;
@@ -615,12 +619,12 @@ remote_event_signal(struct remote_event *event)
 }
 
 int
-vchiq_prepare_bulk_data(struct vchiq_bulk *bulk, void *offset,
+vchiq_prepare_bulk_data(struct vchiq_instance *instance, struct vchiq_bulk *bulk, void *offset,
 			void __user *uoffset, int size, int dir)
 {
 	struct vchiq_pagelist_info *pagelistinfo;
 
-	pagelistinfo = create_pagelist(offset, uoffset, size,
+	pagelistinfo = create_pagelist(instance, offset, uoffset, size,
 				       (dir == VCHIQ_BULK_RECEIVE)
 				       ? PAGELIST_READ
 				       : PAGELIST_WRITE);
@@ -640,10 +644,10 @@ vchiq_prepare_bulk_data(struct vchiq_bulk *bulk, void *offset,
 }
 
 void
-vchiq_complete_bulk(struct vchiq_bulk *bulk)
+vchiq_complete_bulk(struct vchiq_instance *instance, struct vchiq_bulk *bulk)
 {
 	if (bulk && bulk->remote_data && bulk->actual)
-		free_pagelist((struct vchiq_pagelist_info *)bulk->remote_data,
+		free_pagelist(instance, (struct vchiq_pagelist_info *)bulk->remote_data,
 			      bulk->actual);
 }
 
@@ -821,7 +825,7 @@ vchiq_open_service(struct vchiq_instance *instance,
 		*phandle = service->handle;
 		status = vchiq_open_service_internal(service, current->pid);
 		if (status != VCHIQ_SUCCESS) {
-			vchiq_remove_service(service->handle);
+			vchiq_remove_service(instance, service->handle);
 			*phandle = VCHIQ_SERVICE_HANDLE_INVALID;
 		}
 	}
@@ -834,8 +838,8 @@ failed:
 EXPORT_SYMBOL(vchiq_open_service);
 
 enum vchiq_status
-vchiq_bulk_transmit(unsigned int handle, const void *data, unsigned int size,
-		    void *userdata, enum vchiq_bulk_mode mode)
+vchiq_bulk_transmit(struct vchiq_instance *instance, unsigned int handle, const void *data,
+		    unsigned int size, void *userdata, enum vchiq_bulk_mode mode)
 {
 	enum vchiq_status status;
 
@@ -843,13 +847,13 @@ vchiq_bulk_transmit(unsigned int handle, const void *data, unsigned int size,
 		switch (mode) {
 		case VCHIQ_BULK_MODE_NOCALLBACK:
 		case VCHIQ_BULK_MODE_CALLBACK:
-			status = vchiq_bulk_transfer(handle,
+			status = vchiq_bulk_transfer(instance, handle,
 						     (void *)data, NULL,
 						     size, userdata, mode,
 						     VCHIQ_BULK_TRANSMIT);
 			break;
 		case VCHIQ_BULK_MODE_BLOCKING:
-			status = vchiq_blocking_bulk_transfer(handle, (void *)data, size,
+			status = vchiq_blocking_bulk_transfer(instance, handle, (void *)data, size,
 							      VCHIQ_BULK_TRANSMIT);
 			break;
 		default:
@@ -871,8 +875,8 @@ vchiq_bulk_transmit(unsigned int handle, const void *data, unsigned int size,
 }
 EXPORT_SYMBOL(vchiq_bulk_transmit);
 
-enum vchiq_status vchiq_bulk_receive(unsigned int handle, void *data,
-				     unsigned int size, void *userdata,
+enum vchiq_status vchiq_bulk_receive(struct vchiq_instance *instance, unsigned int handle,
+				     void *data, unsigned int size, void *userdata,
 				     enum vchiq_bulk_mode mode)
 {
 	enum vchiq_status status;
@@ -881,12 +885,12 @@ enum vchiq_status vchiq_bulk_receive(unsigned int handle, void *data,
 		switch (mode) {
 		case VCHIQ_BULK_MODE_NOCALLBACK:
 		case VCHIQ_BULK_MODE_CALLBACK:
-			status = vchiq_bulk_transfer(handle, data, NULL,
+			status = vchiq_bulk_transfer(instance, handle, data, NULL,
 						     size, userdata,
 						     mode, VCHIQ_BULK_RECEIVE);
 			break;
 		case VCHIQ_BULK_MODE_BLOCKING:
-			status = vchiq_blocking_bulk_transfer(handle, (void *)data, size,
+			status = vchiq_blocking_bulk_transfer(instance, handle, (void *)data, size,
 							      VCHIQ_BULK_RECEIVE);
 			break;
 		default:
@@ -909,19 +913,16 @@ enum vchiq_status vchiq_bulk_receive(unsigned int handle, void *data,
 EXPORT_SYMBOL(vchiq_bulk_receive);
 
 static enum vchiq_status
-vchiq_blocking_bulk_transfer(unsigned int handle, void *data, unsigned int size,
-			     enum vchiq_bulk_dir dir)
+vchiq_blocking_bulk_transfer(struct vchiq_instance *instance, unsigned int handle, void *data,
+			     unsigned int size, enum vchiq_bulk_dir dir)
 {
-	struct vchiq_instance *instance;
 	struct vchiq_service *service;
 	enum vchiq_status status;
 	struct bulk_waiter_node *waiter = NULL, *iter;
 
-	service = find_service_by_handle(handle);
+	service = find_service_by_handle(instance, handle);
 	if (!service)
 		return VCHIQ_ERROR;
-
-	instance = service->instance;
 
 	vchiq_service_put(service);
 
@@ -959,7 +960,7 @@ vchiq_blocking_bulk_transfer(unsigned int handle, void *data, unsigned int size,
 		}
 	}
 
-	status = vchiq_bulk_transfer(handle, data, NULL, size,
+	status = vchiq_bulk_transfer(instance, handle, data, NULL, size,
 				     &waiter->bulk_waiter,
 				     VCHIQ_BULK_MODE_BLOCKING, dir);
 	if ((status != VCHIQ_RETRY) || fatal_signal_pending(current) || !waiter->bulk_waiter.bulk) {
@@ -1046,8 +1047,8 @@ add_completion(struct vchiq_instance *instance, enum vchiq_reason reason,
 }
 
 enum vchiq_status
-service_callback(enum vchiq_reason reason, struct vchiq_header *header,
-		 unsigned int handle, void *bulk_userdata)
+service_callback(struct vchiq_instance *instance, enum vchiq_reason reason,
+		 struct vchiq_header *header, unsigned int handle, void *bulk_userdata)
 {
 	/*
 	 * How do we ensure the callback goes to the right client?
@@ -1057,7 +1058,6 @@ service_callback(enum vchiq_reason reason, struct vchiq_header *header,
 	 */
 	struct user_service *user_service;
 	struct vchiq_service *service;
-	struct vchiq_instance *instance;
 	bool skip_completion = false;
 
 	DEBUG_INITIALISE(g_state.local);
@@ -1065,14 +1065,13 @@ service_callback(enum vchiq_reason reason, struct vchiq_header *header,
 	DEBUG_TRACE(SERVICE_CALLBACK_LINE);
 
 	rcu_read_lock();
-	service = handle_to_service(handle);
+	service = handle_to_service(instance, handle);
 	if (WARN_ON(!service)) {
 		rcu_read_unlock();
 		return VCHIQ_SUCCESS;
 	}
 
 	user_service = (struct user_service *)service->base.userdata;
-	instance = user_service->instance;
 
 	if (!instance || instance->closing) {
 		rcu_read_unlock();
@@ -1318,7 +1317,8 @@ vchiq_get_state(void)
  */
 
 static enum vchiq_status
-vchiq_keepalive_vchiq_callback(enum vchiq_reason reason,
+vchiq_keepalive_vchiq_callback(struct vchiq_instance *instance,
+			       enum vchiq_reason reason,
 			       struct vchiq_header *header,
 			       unsigned int service_user, void *bulk_user)
 {
@@ -1387,14 +1387,14 @@ vchiq_keepalive_thread_func(void *v)
 		 */
 		while (uc--) {
 			atomic_inc(&arm_state->ka_use_ack_count);
-			status = vchiq_use_service(ka_handle);
+			status = vchiq_use_service(instance, ka_handle);
 			if (status != VCHIQ_SUCCESS) {
 				vchiq_log_error(vchiq_susp_log_level,
 						"%s vchiq_use_service error %d", __func__, status);
 			}
 		}
 		while (rc--) {
-			status = vchiq_release_service(ka_handle);
+			status = vchiq_release_service(instance, ka_handle);
 			if (status != VCHIQ_SUCCESS) {
 				vchiq_log_error(vchiq_susp_log_level,
 						"%s vchiq_release_service error %d", __func__,
@@ -1590,10 +1590,10 @@ vchiq_instance_set_trace(struct vchiq_instance *instance, int trace)
 }
 
 enum vchiq_status
-vchiq_use_service(unsigned int handle)
+vchiq_use_service(struct vchiq_instance *instance, unsigned int handle)
 {
 	enum vchiq_status ret = VCHIQ_ERROR;
-	struct vchiq_service *service = find_service_by_handle(handle);
+	struct vchiq_service *service = find_service_by_handle(instance, handle);
 
 	if (service) {
 		ret = vchiq_use_internal(service->state, service, USE_TYPE_SERVICE);
@@ -1604,10 +1604,10 @@ vchiq_use_service(unsigned int handle)
 EXPORT_SYMBOL(vchiq_use_service);
 
 enum vchiq_status
-vchiq_release_service(unsigned int handle)
+vchiq_release_service(struct vchiq_instance *instance, unsigned int handle)
 {
 	enum vchiq_status ret = VCHIQ_ERROR;
-	struct vchiq_service *service = find_service_by_handle(handle);
+	struct vchiq_service *service = find_service_by_handle(instance, handle);
 
 	if (service) {
 		ret = vchiq_release_internal(service->state, service);
@@ -1770,6 +1770,7 @@ vchiq_register_child(struct platform_device *pdev, const char *name)
 {
 	struct platform_device_info pdevinfo;
 	struct platform_device *child;
+	struct device_node *np;
 
 	memset(&pdevinfo, 0, sizeof(pdevinfo));
 
@@ -1778,11 +1779,35 @@ vchiq_register_child(struct platform_device *pdev, const char *name)
 	pdevinfo.id = PLATFORM_DEVID_NONE;
 	pdevinfo.dma_mask = DMA_BIT_MASK(32);
 
+	np = of_get_child_by_name(pdev->dev.of_node, name);
+
+	/* Skip the child if it is explicitly disabled */
+	if (np && !of_device_is_available(np))
+		return NULL;
+
 	child = platform_device_register_full(&pdevinfo);
 	if (IS_ERR(child)) {
 		dev_warn(&pdev->dev, "%s not registered\n", name);
 		child = NULL;
 	}
+
+	child->dev.of_node = np;
+
+	/*
+	 * We want the dma-ranges etc to be copied from a device with the
+	 * correct dma-ranges for the VPU.
+	 * VCHIQ on Pi4 is now under scb which doesn't get those dma-ranges.
+	 * Take the "dma" node as going to be suitable as it sees the world
+	 * through the same eyes as the VPU.
+	 */
+	np = of_find_node_by_path("dma");
+	if (!np)
+		np = pdev->dev.of_node;
+
+	of_dma_configure(&child->dev, np, true);
+
+	if (np != pdev->dev.of_node)
+		of_node_put(np);
 
 	return child;
 }
@@ -1834,6 +1859,8 @@ static int vchiq_probe(struct platform_device *pdev)
 		goto error_exit;
 	}
 
+	vcsm_cma = vchiq_register_child(pdev, "vcsm-cma");
+	bcm2835_codec = vchiq_register_child(pdev, "bcm2835-codec");
 	bcm2835_camera = vchiq_register_child(pdev, "bcm2835-camera");
 	bcm2835_audio = vchiq_register_child(pdev, "bcm2835_audio");
 
@@ -1849,6 +1876,8 @@ static int vchiq_remove(struct platform_device *pdev)
 {
 	platform_device_unregister(bcm2835_audio);
 	platform_device_unregister(bcm2835_camera);
+	platform_device_unregister(bcm2835_codec);
+	platform_device_unregister(vcsm_cma);
 	vchiq_debugfs_deinit();
 	vchiq_deregister_chrdev();
 

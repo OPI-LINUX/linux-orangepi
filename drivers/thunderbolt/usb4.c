@@ -155,6 +155,8 @@ static inline int usb4_switch_op_data(struct tb_switch *sw, u16 opcode,
 
 static void usb4_switch_check_wakes(struct tb_switch *sw)
 {
+	bool wakeup_usb4 = false;
+	struct usb4_port *usb4;
 	struct tb_port *port;
 	bool wakeup = false;
 	u32 val;
@@ -173,20 +175,31 @@ static void usb4_switch_check_wakes(struct tb_switch *sw)
 		wakeup = val & (ROUTER_CS_6_WOPS | ROUTER_CS_6_WOUS);
 	}
 
-	/* Check for any connected downstream ports for USB4 wake */
+	/*
+	 * Check for any downstream ports for USB4 wake,
+	 * connection wake and disconnection wake.
+	 */
 	tb_switch_for_each_port(sw, port) {
-		if (!tb_port_has_remote(port))
+		if (!port->cap_usb4)
 			continue;
 
 		if (tb_port_read(port, &val, TB_CFG_PORT,
 				 port->cap_usb4 + PORT_CS_18, 1))
 			break;
 
-		tb_port_dbg(port, "USB4 wake: %s\n",
-			    (val & PORT_CS_18_WOU4S) ? "yes" : "no");
+		tb_port_dbg(port, "USB4 wake: %s, connection wake: %s, disconnection wake: %s\n",
+			    (val & PORT_CS_18_WOU4S) ? "yes" : "no",
+			    (val & PORT_CS_18_WOCS) ? "yes" : "no",
+			    (val & PORT_CS_18_WODS) ? "yes" : "no");
 
-		if (val & PORT_CS_18_WOU4S)
-			wakeup = true;
+		wakeup_usb4 = val & (PORT_CS_18_WOU4S | PORT_CS_18_WOCS |
+				     PORT_CS_18_WODS);
+
+		usb4 = port->usb4;
+		if (device_may_wakeup(&usb4->dev) && wakeup_usb4)
+			pm_wakeup_event(&usb4->dev, 0);
+
+		wakeup |= wakeup_usb4;
 	}
 
 	if (wakeup)
@@ -366,6 +379,7 @@ bool usb4_switch_lane_bonding_possible(struct tb_switch *sw)
  */
 int usb4_switch_set_wake(struct tb_switch *sw, unsigned int flags)
 {
+	struct usb4_port *usb4;
 	struct tb_port *port;
 	u64 route = tb_route(sw);
 	u32 val;
@@ -395,10 +409,13 @@ int usb4_switch_set_wake(struct tb_switch *sw, unsigned int flags)
 			val |= PORT_CS_19_WOU4;
 		} else {
 			bool configured = val & PORT_CS_19_PC;
+			usb4 = port->usb4;
 
-			if ((flags & TB_WAKE_ON_CONNECT) && !configured)
+			if (((flags & TB_WAKE_ON_CONNECT) |
+			      device_may_wakeup(&usb4->dev)) && !configured)
 				val |= PORT_CS_19_WOC;
-			if ((flags & TB_WAKE_ON_DISCONNECT) && configured)
+			if (((flags & TB_WAKE_ON_DISCONNECT) |
+			      device_may_wakeup(&usb4->dev)) && configured)
 				val |= PORT_CS_19_WOD;
 			if ((flags & TB_WAKE_ON_USB4) && configured)
 				val |= PORT_CS_19_WOU4;
@@ -1046,6 +1063,26 @@ int usb4_port_unlock(struct tb_port *port)
 	return tb_port_write(port, &val, TB_CFG_PORT, ADP_CS_4, 1);
 }
 
+/**
+ * usb4_port_hotplug_enable() - Enables hotplug for a port
+ * @port: USB4 port to operate on
+ *
+ * Enables hot plug events on a given port. This is only intended
+ * to be used on lane, DP-IN, and DP-OUT adapters.
+ */
+int usb4_port_hotplug_enable(struct tb_port *port)
+{
+	int ret;
+	u32 val;
+
+	ret = tb_port_read(port, &val, TB_CFG_PORT, ADP_CS_5, 1);
+	if (ret)
+		return ret;
+
+	val &= ~ADP_CS_5_DHP;
+	return tb_port_write(port, &val, TB_CFG_PORT, ADP_CS_5, 1);
+}
+
 static int usb4_port_set_configured(struct tb_port *port, bool configured)
 {
 	int ret;
@@ -1115,12 +1152,14 @@ static int usb4_set_xdomain_configured(struct tb_port *port, bool configured)
 /**
  * usb4_port_configure_xdomain() - Configure port for XDomain
  * @port: USB4 port connected to another host
+ * @xd: XDomain that is connected to the port
  *
- * Marks the USB4 port as being connected to another host. Returns %0 in
- * success and negative errno in failure.
+ * Marks the USB4 port as being connected to another host and updates
+ * the link type. Returns %0 in success and negative errno in failure.
  */
-int usb4_port_configure_xdomain(struct tb_port *port)
+int usb4_port_configure_xdomain(struct tb_port *port, struct tb_xdomain *xd)
 {
+	xd->link_usb4 = link_is_usb4(port);
 	return usb4_set_xdomain_configured(port, true);
 }
 
@@ -1384,6 +1423,126 @@ bool usb4_port_clx_supported(struct tb_port *port)
 	return !!(val & PORT_CS_18_CPS);
 }
 
+/**
+ * usb4_port_margining_caps() - Read USB4 port marginig capabilities
+ * @port: USB4 port
+ * @caps: Array with at least two elements to hold the results
+ *
+ * Reads the USB4 port lane margining capabilities into @caps.
+ */
+int usb4_port_margining_caps(struct tb_port *port, u32 *caps)
+{
+	int ret;
+
+	ret = usb4_port_sb_op(port, USB4_SB_TARGET_ROUTER, 0,
+			      USB4_SB_OPCODE_READ_LANE_MARGINING_CAP, 500);
+	if (ret)
+		return ret;
+
+	return usb4_port_sb_read(port, USB4_SB_TARGET_ROUTER, 0,
+				 USB4_SB_DATA, caps, sizeof(*caps) * 2);
+}
+
+/**
+ * usb4_port_hw_margin() - Run hardware lane margining on port
+ * @port: USB4 port
+ * @lanes: Which lanes to run (must match the port capabilities). Can be
+ *	   %0, %1 or %7.
+ * @ber_level: BER level contour value
+ * @timing: Perform timing margining instead of voltage
+ * @right_high: Use Right/high margin instead of left/low
+ * @results: Array with at least two elements to hold the results
+ *
+ * Runs hardware lane margining on USB4 port and returns the result in
+ * @results.
+ */
+int usb4_port_hw_margin(struct tb_port *port, unsigned int lanes,
+			unsigned int ber_level, bool timing, bool right_high,
+			u32 *results)
+{
+	u32 val;
+	int ret;
+
+	val = lanes;
+	if (timing)
+		val |= USB4_MARGIN_HW_TIME;
+	if (right_high)
+		val |= USB4_MARGIN_HW_RH;
+	if (ber_level)
+		val |= (ber_level << USB4_MARGIN_HW_BER_SHIFT) &
+			USB4_MARGIN_HW_BER_MASK;
+
+	ret = usb4_port_sb_write(port, USB4_SB_TARGET_ROUTER, 0,
+				 USB4_SB_METADATA, &val, sizeof(val));
+	if (ret)
+		return ret;
+
+	ret = usb4_port_sb_op(port, USB4_SB_TARGET_ROUTER, 0,
+			      USB4_SB_OPCODE_RUN_HW_LANE_MARGINING, 2500);
+	if (ret)
+		return ret;
+
+	return usb4_port_sb_read(port, USB4_SB_TARGET_ROUTER, 0,
+				 USB4_SB_DATA, results, sizeof(*results) * 2);
+}
+
+/**
+ * usb4_port_sw_margin() - Run software lane margining on port
+ * @port: USB4 port
+ * @lanes: Which lanes to run (must match the port capabilities). Can be
+ *	   %0, %1 or %7.
+ * @timing: Perform timing margining instead of voltage
+ * @right_high: Use Right/high margin instead of left/low
+ * @counter: What to do with the error counter
+ *
+ * Runs software lane margining on USB4 port. Read back the error
+ * counters by calling usb4_port_sw_margin_errors(). Returns %0 in
+ * success and negative errno otherwise.
+ */
+int usb4_port_sw_margin(struct tb_port *port, unsigned int lanes, bool timing,
+			bool right_high, u32 counter)
+{
+	u32 val;
+	int ret;
+
+	val = lanes;
+	if (timing)
+		val |= USB4_MARGIN_SW_TIME;
+	if (right_high)
+		val |= USB4_MARGIN_SW_RH;
+	val |= (counter << USB4_MARGIN_SW_COUNTER_SHIFT) &
+		USB4_MARGIN_SW_COUNTER_MASK;
+
+	ret = usb4_port_sb_write(port, USB4_SB_TARGET_ROUTER, 0,
+				 USB4_SB_METADATA, &val, sizeof(val));
+	if (ret)
+		return ret;
+
+	return usb4_port_sb_op(port, USB4_SB_TARGET_ROUTER, 0,
+			       USB4_SB_OPCODE_RUN_SW_LANE_MARGINING, 2500);
+}
+
+/**
+ * usb4_port_sw_margin_errors() - Read the software margining error counters
+ * @port: USB4 port
+ * @errors: Error metadata is copied here.
+ *
+ * This reads back the software margining error counters from the port.
+ * Returns %0 in success and negative errno otherwise.
+ */
+int usb4_port_sw_margin_errors(struct tb_port *port, u32 *errors)
+{
+	int ret;
+
+	ret = usb4_port_sb_op(port, USB4_SB_TARGET_ROUTER, 0,
+			      USB4_SB_OPCODE_READ_SW_MARGIN_ERR, 150);
+	if (ret)
+		return ret;
+
+	return usb4_port_sb_read(port, USB4_SB_TARGET_ROUTER, 0,
+				 USB4_SB_METADATA, errors, sizeof(*errors));
+}
+
 static inline int usb4_port_retimer_op(struct tb_port *port, u8 index,
 				       enum usb4_sb_opcode opcode,
 				       int timeout_msec)
@@ -1417,6 +1576,20 @@ int usb4_port_retimer_set_inbound_sbtx(struct tb_port *port, u8 index)
 	 */
 	return usb4_port_retimer_op(port, index, USB4_SB_OPCODE_SET_INBOUND_SBTX,
 				    500);
+}
+
+/**
+ * usb4_port_retimer_unset_inbound_sbtx() - Disable sideband channel transactions
+ * @port: USB4 port
+ * @index: Retimer index
+ *
+ * Disables sideband channel transations on SBTX. The reverse of
+ * usb4_port_retimer_set_inbound_sbtx().
+ */
+int usb4_port_retimer_unset_inbound_sbtx(struct tb_port *port, u8 index)
+{
+	return usb4_port_retimer_op(port, index,
+				    USB4_SB_OPCODE_UNSET_INBOUND_SBTX, 500);
 }
 
 /**
@@ -1709,6 +1882,15 @@ int usb4_port_retimer_nvm_read(struct tb_port *port, u8 index,
 				usb4_port_retimer_nvm_read_block, &info);
 }
 
+static inline unsigned int
+usb4_usb3_port_max_bandwidth(const struct tb_port *port, unsigned int bw)
+{
+	/* Take the possible bandwidth limitation into account */
+	if (port->max_bw)
+		return min(bw, port->max_bw);
+	return bw;
+}
+
 /**
  * usb4_usb3_port_max_link_rate() - Maximum support USB3 link rate
  * @port: USB3 adapter port
@@ -1730,7 +1912,9 @@ int usb4_usb3_port_max_link_rate(struct tb_port *port)
 		return ret;
 
 	lr = (val & ADP_USB3_CS_4_MSLR_MASK) >> ADP_USB3_CS_4_MSLR_SHIFT;
-	return lr == ADP_USB3_CS_4_MSLR_20G ? 20000 : 10000;
+	ret = lr == ADP_USB3_CS_4_MSLR_20G ? 20000 : 10000;
+
+	return usb4_usb3_port_max_bandwidth(port, ret);
 }
 
 /**
@@ -1757,7 +1941,9 @@ int usb4_usb3_port_actual_link_rate(struct tb_port *port)
 		return 0;
 
 	lr = val & ADP_USB3_CS_4_ALR_MASK;
-	return lr == ADP_USB3_CS_4_ALR_20G ? 20000 : 10000;
+	ret = lr == ADP_USB3_CS_4_ALR_20G ? 20000 : 10000;
+
+	return usb4_usb3_port_max_bandwidth(port, ret);
 }
 
 static int usb4_usb3_port_cm_request(struct tb_port *port, bool request)
@@ -1908,17 +2094,29 @@ static int usb4_usb3_port_write_allocated_bandwidth(struct tb_port *port,
 						    int downstream_bw)
 {
 	u32 val, ubw, dbw, scale;
-	int ret;
+	int ret, max_bw;
 
-	/* Read the used scale, hardware default is 0 */
-	ret = tb_port_read(port, &scale, TB_CFG_PORT,
-			   port->cap_adap + ADP_USB3_CS_3, 1);
+	/* Figure out suitable scale */
+	scale = 0;
+	max_bw = max(upstream_bw, downstream_bw);
+	while (scale < 64) {
+		if (mbps_to_usb3_bw(max_bw, scale) < 4096)
+			break;
+		scale++;
+	}
+
+	if (WARN_ON(scale >= 64))
+		return -EINVAL;
+
+	ret = tb_port_write(port, &scale, TB_CFG_PORT,
+			    port->cap_adap + ADP_USB3_CS_3, 1);
 	if (ret)
 		return ret;
 
-	scale &= ADP_USB3_CS_3_SCALE_MASK;
 	ubw = mbps_to_usb3_bw(upstream_bw, scale);
 	dbw = mbps_to_usb3_bw(downstream_bw, scale);
+
+	tb_port_dbg(port, "scaled bandwidth %u/%u, scale %u\n", ubw, dbw, scale);
 
 	ret = tb_port_read(port, &val, TB_CFG_PORT,
 			   port->cap_adap + ADP_USB3_CS_2, 1);

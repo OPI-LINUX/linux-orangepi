@@ -263,7 +263,7 @@ bool icmp_global_allow(void)
 		/* We want to use a credit of one in average, but need to randomize
 		 * it for security reasons.
 		 */
-		credit = max_t(int, credit - prandom_u32_max(3), 0);
+		credit = max_t(int, credit - get_random_u32_below(3), 0);
 		rc = true;
 	}
 	WRITE_ONCE(icmp_global.credit, credit);
@@ -746,6 +746,11 @@ void __icmp_send(struct sk_buff *skb_in, int type, int code, __be32 info,
 		room = 576;
 	room -= sizeof(struct iphdr) + icmp_param.replyopts.opt.opt.optlen;
 	room -= sizeof(struct icmphdr);
+	/* Guard against tiny mtu. We need to include at least one
+	 * IP network header for this message to make any sense.
+	 */
+	if (room <= (int)sizeof(struct iphdr))
+		goto ende;
 
 	icmp_param.data_len = skb_in->len - icmp_param.offset;
 	if (icmp_param.data_len > room)

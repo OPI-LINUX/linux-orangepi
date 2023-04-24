@@ -5,6 +5,7 @@
 
 /dts-v1/;
 
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include <dt-bindings/sound/qcom,q6afe.h>
@@ -21,7 +22,7 @@
 
 	aliases {
 		serial0 = &uart9;
-		hsuart0 = &uart6;
+		serial1 = &uart6;
 	};
 
 	chosen {
@@ -43,14 +44,14 @@
 		regulator-always-on;
 	};
 
-	gpio_keys {
+	gpio-keys {
 		compatible = "gpio-keys";
 		autorepeat;
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&vol_up_pin_a>;
 
-		vol-up {
+		key-vol-up {
 			label = "Volume Up";
 			linux,code = <KEY_VOLUMEUP>;
 			gpios = <&pm8998_gpio 6 GPIO_ACTIVE_LOW>;
@@ -60,22 +61,28 @@
 	leds {
 		compatible = "gpio-leds";
 
-		user4 {
+		led-0 {
 			label = "green:user4";
+			function = LED_FUNCTION_INDICATOR;
+			color = <LED_COLOR_ID_GREEN>;
 			gpios = <&pm8998_gpio 13 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "panic-indicator";
 			default-state = "off";
 		};
 
-		wlan {
+		led-1 {
 			label = "yellow:wlan";
+			function = LED_FUNCTION_WLAN;
+			color = <LED_COLOR_ID_YELLOW>;
 			gpios = <&pm8998_gpio 9 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "phy0tx";
 			default-state = "off";
 		};
 
-		bt {
+		led-2 {
 			label = "blue:bt";
+			function = LED_FUNCTION_BLUETOOTH;
+			color = <LED_COLOR_ID_BLUE>;
 			gpios = <&pm8998_gpio 5 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "bluetooth-power";
 			default-state = "off";
@@ -113,9 +120,11 @@
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 
-		// TODO: make it possible to drive same GPIO from two clients
-		// gpio = <&tlmm 89 GPIO_ACTIVE_HIGH>;
-		// enable-active-high;
+		/*
+		 * TODO: make it possible to drive same GPIO from two clients
+		 * gpio = <&tlmm 89 GPIO_ACTIVE_HIGH>;
+		 * enable-active-high;
+		 */
 	};
 
 	pcie0_1p05v: pcie-0-1p05v-regulator {
@@ -126,9 +135,11 @@
 		regulator-min-microvolt = <1050000>;
 		regulator-max-microvolt = <1050000>;
 
-		// TODO: make it possible to drive same GPIO from two clients
-		// gpio = <&tlmm 90 GPIO_ACTIVE_HIGH>;
-		// enable-active-high;
+		/*
+		 * TODO: make it possible to drive same GPIO from two clients
+		 * gpio = <&tlmm 90 GPIO_ACTIVE_HIGH>;
+		 * enable-active-high;
+		 */
 	};
 
 	cam0_dvdd_1v2: reg_cam0_dvdd_1v2 {
@@ -188,9 +199,11 @@
 		regulator-min-microvolt = <500000>;
 		regulator-max-microvolt = <500000>;
 
-		// TODO: make it possible to drive same GPIO from two clients
-		// gpio = <&tlmm 89 GPIO_ACTIVE_HIGH>;
-		// enable-active-high;
+		/*
+		 * TODO: make it possible to drive same GPIO from two clients
+		 * gpio = <&tlmm 89 GPIO_ACTIVE_HIGH>;
+		 * enable-active-high;
+		 */
 	};
 
 	vbat: vbat-regulator {
@@ -436,6 +449,10 @@
 	status = "okay";
 };
 
+&gpi_dma1 {
+	status = "okay";
+};
+
 &gpu {
 	status = "okay";
 	zap-shader {
@@ -488,12 +505,14 @@
 
 &i2c11 {
 	/* On Low speed expansion */
+	clock-frequency = <100000>;
 	label = "LS-I2C1";
 	status = "okay";
 };
 
 &i2c14 {
 	/* On Low speed expansion */
+	clock-frequency = <100000>;
 	label = "LS-I2C0";
 	status = "okay";
 };
@@ -509,7 +528,7 @@
 
 &pcie0 {
 	status = "okay";
-	perst-gpio = <&tlmm 35 GPIO_ACTIVE_LOW>;
+	perst-gpios = <&tlmm 35 GPIO_ACTIVE_LOW>;
 	enable-gpio = <&tlmm 134 GPIO_ACTIVE_HIGH>;
 
 	vddpe-3v3-supply = <&pcie0_3p3v_dual>;
@@ -527,7 +546,7 @@
 
 &pcie1 {
 	status = "okay";
-	perst-gpio = <&tlmm 102 GPIO_ACTIVE_LOW>;
+	perst-gpios = <&tlmm 102 GPIO_ACTIVE_LOW>;
 
 	pinctrl-names = "default";
 	pinctrl-0 = <&pcie1_default_state>;
@@ -569,7 +588,7 @@
 		"OPTION2",
 		"PM845_SLB";
 
-	cam0_dvdd_1v2_en_default: cam0-dvdd-1v2-en {
+	cam0_dvdd_1v2_en_default: cam0-dvdd-1v2-en-state {
 		pins = "gpio12";
 		function = "normal";
 
@@ -578,7 +597,7 @@
 		qcom,drive-strength = <PMIC_GPIO_STRENGTH_HIGH>;
 	};
 
-	cam0_avdd_2v8_en_default: cam0-avdd-2v8-en {
+	cam0_avdd_2v8_en_default: cam0-avdd-2v8-en-state {
 		pins = "gpio10";
 		function = "normal";
 
@@ -587,7 +606,7 @@
 		qcom,drive-strength = <PMIC_GPIO_STRENGTH_HIGH>;
 	};
 
-	vol_up_pin_a: vol-up-active {
+	vol_up_pin_a: vol-up-active-state {
 		pins = "gpio6";
 		function = "normal";
 		input-enable;
@@ -596,20 +615,49 @@
 	};
 };
 
-&pm8998_pon {
-	resin {
-		compatible = "qcom,pm8941-resin";
-		interrupts = <0x0 0x8 1 IRQ_TYPE_EDGE_BOTH>;
-		debounce = <15625>;
-		bias-pull-up;
-		linux,code = <KEY_VOLUMEDOWN>;
+&pm8998_resin {
+	linux,code = <KEY_VOLUMEDOWN>;
+	status = "okay";
+};
+
+&pmi8998_lpg {
+	status = "okay";
+
+	qcom,power-source = <1>;
+
+	led@3 {
+		reg = <3>;
+		color = <LED_COLOR_ID_GREEN>;
+		function = LED_FUNCTION_HEARTBEAT;
+		function-enumerator = <3>;
+
+		linux,default-trigger = "heartbeat";
+		default-state = "on";
 	};
+
+	led@4 {
+		reg = <4>;
+		color = <LED_COLOR_ID_GREEN>;
+		function = LED_FUNCTION_INDICATOR;
+		function-enumerator = <2>;
+	};
+
+	led@5 {
+		reg = <5>;
+		color = <LED_COLOR_ID_GREEN>;
+		function = LED_FUNCTION_INDICATOR;
+		function-enumerator = <1>;
+	};
+};
+
+&pmi8998_rradc {
+	status = "okay";
 };
 
 /* QUAT I2S Uses 4 I2S SD Lines for audio on LT9611 HDMI Bridge */
 &q6afedai {
-	qi2s@22 {
-		reg = <22>;
+	dai@22 {
+		reg = <QUATERNARY_MI2S_RX>;
 		qcom,sd-lines = <0 1 2 3>;
 	};
 };
@@ -718,7 +766,7 @@
 		};
 
 		codec {
-			sound-dai =  <&lt9611_codec 0>;
+			sound-dai = <&lt9611_codec 0>;
 		};
 	};
 
@@ -733,7 +781,7 @@
 		};
 
 		codec {
-			sound-dai =  <&left_spkr>, <&right_spkr>, <&swm 0>, <&wcd9340 0>;
+			sound-dai = <&left_spkr>, <&right_spkr>, <&swm 0>, <&wcd9340 0>;
 		};
 	};
 
@@ -926,7 +974,7 @@
 	};
 
 	wcd_intr_default: wcd_intr_default {
-		pins = <54>;
+		pins = "gpio54";
 		function = "gpio";
 
 		input-enable;
@@ -942,6 +990,8 @@
 
 &uart6 {
 	status = "okay";
+
+	pinctrl-0 = <&qup_uart6_4pin>;
 
 	bluetooth {
 		compatible = "qcom,wcn3990-bt";
@@ -1033,12 +1083,12 @@
 	status = "okay";
 };
 
-&wcd9340{
+&wcd9340 {
 	pinctrl-0 = <&wcd_intr_default>;
 	pinctrl-names = "default";
 	clock-names = "extclk";
 	clocks = <&rpmhcc RPMH_LN_BB_CLK2>;
-	reset-gpios = <&tlmm 64 0>;
+	reset-gpios = <&tlmm 64 GPIO_ACTIVE_HIGH>;
 	vdd-buck-supply = <&vreg_s4a_1p8>;
 	vdd-buck-sido-supply = <&vreg_s4a_1p8>;
 	vdd-tx-supply = <&vreg_s4a_1p8>;
@@ -1046,7 +1096,7 @@
 	vdd-io-supply = <&vreg_s4a_1p8>;
 
 	swm: swm@c85 {
-		left_spkr: wsa8810-left{
+		left_spkr: speaker@0,1 {
 			compatible = "sdw10217201000";
 			reg = <0 1>;
 			powerdown-gpios = <&wcdgpio 1 GPIO_ACTIVE_HIGH>;
@@ -1055,7 +1105,7 @@
 			#sound-dai-cells = <0>;
 		};
 
-		right_spkr: wsa8810-right{
+		right_spkr: speaker@0,2 {
 			compatible = "sdw10217201000";
 			powerdown-gpios = <&wcdgpio 1 GPIO_ACTIVE_HIGH>;
 			reg = <0 2>;
@@ -1080,10 +1130,13 @@
 
 /* PINCTRL - additions to nodes defined in sdm845.dtsi */
 &qup_spi2_default {
-	drive-strength = <16>;
+	pinconf {
+		pins = "gpio27", "gpio28", "gpio29", "gpio30";
+		drive-strength = <16>;
+	};
 };
 
-&qup_uart3_default{
+&qup_uart3_default {
 	pinmux {
 		pins = "gpio41", "gpio42", "gpio43", "gpio44";
 		function = "qup3";
@@ -1095,29 +1148,6 @@
 		pins = "gpio55", "gpio56";
 		drive-strength = <2>;
 		bias-disable;
-	};
-};
-
-&qup_uart6_default {
-	pinmux {
-		pins = "gpio45", "gpio46", "gpio47", "gpio48";
-		function = "qup6";
-	};
-
-	cts {
-		pins = "gpio45";
-		bias-disable;
-	};
-
-	rts-tx {
-		pins = "gpio46", "gpio47";
-		drive-strength = <2>;
-		bias-disable;
-	};
-
-	rx {
-		pins = "gpio48";
-		bias-pull-up;
 	};
 };
 
@@ -1137,112 +1167,6 @@
 
 &pm8998_gpio {
 
-};
-
-&cci {
-	status = "okay";
-};
-
-&camss {
-	vdda-supply = <&vreg_l1a_0p875>;
-
-	status = "ok";
-
-	ports {
-		#address-cells = <1>;
-		#size-cells = <0>;
-		port@0 {
-			reg = <0>;
-			csiphy0_ep: endpoint {
-				data-lanes = <0 1 2 3>;
-				remote-endpoint = <&ov8856_ep>;
-			};
-		};
-	};
-};
-
-&cci_i2c0 {
-	camera@10 {
-		compatible = "ovti,ov8856";
-		reg = <0x10>;
-
-		// CAM0_RST_N
-		reset-gpios = <&tlmm 9 GPIO_ACTIVE_LOW>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&cam0_default>;
-		gpios = <&tlmm 13 0>,
-			<&tlmm 9 GPIO_ACTIVE_LOW>;
-
-		clocks = <&clock_camcc CAM_CC_MCLK0_CLK>;
-		clock-names = "xvclk";
-		clock-frequency = <19200000>;
-
-		/* The &vreg_s4a_1p8 trace is powered on as a,
-		 * so it is represented by a fixed regulator.
-		 *
-		 * The 2.8V vdda-supply and 1.2V vddd-supply regulators
-		 * both have to be enabled through the power management
-		 * gpios.
-		 */
-		power-domains = <&clock_camcc TITAN_TOP_GDSC>;
-
-		dovdd-supply = <&vreg_lvs1a_1p8>;
-		avdd-supply = <&cam0_avdd_2v8>;
-		dvdd-supply = <&cam0_dvdd_1v2>;
-
-		status = "ok";
-
-		port {
-			ov8856_ep: endpoint {
-				link-frequencies = /bits/ 64
-					<360000000 180000000>;
-				data-lanes = <1 2 3 4>;
-				remote-endpoint = <&csiphy0_ep>;
-			};
-		};
-	};
-};
-
-&cci_i2c1 {
-	camera@60 {
-		compatible = "ovti,ov7251";
-
-		// I2C address as per ov7251.txt linux documentation
-		reg = <0x60>;
-
-		// CAM3_RST_N
-		enable-gpios = <&tlmm 21 0>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&cam3_default>;
-		gpios = <&tlmm 16 0>,
-			<&tlmm 21 0>;
-
-		clocks = <&clock_camcc CAM_CC_MCLK3_CLK>;
-		clock-names = "xclk";
-		clock-frequency = <24000000>;
-
-		/* The &vreg_s4a_1p8 trace always powered on.
-		 *
-		 * The 2.8V vdda-supply regulator is enabled when the
-		 * vreg_s4a_1p8 trace is pulled high.
-		 * It too is represented by a fixed regulator.
-		 *
-		 * No 1.2V vddd-supply regulator is used.
-		 */
-		power-domains = <&clock_camcc TITAN_TOP_GDSC>;
-
-		vdddo-supply = <&vreg_lvs1a_1p8>;
-		vdda-supply = <&cam3_avdd_2v8>;
-
-		status = "disable";
-
-		port {
-			ov7251_ep: endpoint {
-				data-lanes = <0 1>;
-//				remote-endpoint = <&csiphy3_ep>;
-			};
-		};
-	};
 };
 
 /* PINCTRL - additions to nodes defined in sdm845.dtsi */

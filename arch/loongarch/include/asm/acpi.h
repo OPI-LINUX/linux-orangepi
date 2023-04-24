@@ -15,7 +15,7 @@ extern int acpi_pci_disabled;
 extern int acpi_noirq;
 
 #define acpi_os_ioremap acpi_os_ioremap
-void __init __iomem *acpi_os_ioremap(acpi_physical_address phys, acpi_size size);
+void __iomem *acpi_os_ioremap(acpi_physical_address phys, acpi_size size);
 
 static inline void disable_acpi(void)
 {
@@ -34,5 +34,15 @@ extern struct list_head acpi_wakeup_device_list;
 #endif /* !CONFIG_ACPI */
 
 #define ACPI_TABLE_UPGRADE_MAX_PHYS ARCH_LOW_ADDRESS_LIMIT
+
+extern int loongarch_acpi_suspend(void);
+extern int (*acpi_suspend_lowlevel)(void);
+extern void loongarch_suspend_enter(void);
+
+static inline unsigned long acpi_get_wakeup_address(void)
+{
+	extern void loongarch_wakeup_start(void);
+	return (unsigned long)loongarch_wakeup_start;
+}
 
 #endif /* _ASM_LOONGARCH_ACPI_H */

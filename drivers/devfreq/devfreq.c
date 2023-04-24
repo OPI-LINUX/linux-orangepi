@@ -696,6 +696,8 @@ static int qos_notifier_call(struct devfreq *devfreq)
 /**
  * qos_min_notifier_call() - Callback for QoS min_freq changes.
  * @nb:		Should be devfreq->nb_min
+ * @val:	not used
+ * @ptr:	not used
  */
 static int qos_min_notifier_call(struct notifier_block *nb,
 					 unsigned long val, void *ptr)
@@ -706,6 +708,8 @@ static int qos_min_notifier_call(struct notifier_block *nb,
 /**
  * qos_max_notifier_call() - Callback for QoS max_freq changes.
  * @nb:		Should be devfreq->nb_max
+ * @val:	not used
+ * @ptr:	not used
  */
 static int qos_max_notifier_call(struct notifier_block *nb,
 					 unsigned long val, void *ptr)
@@ -772,8 +776,7 @@ static void remove_sysfs_files(struct devfreq *devfreq,
  * @dev:	the device to add devfreq feature.
  * @profile:	device-specific profile to run devfreq.
  * @governor_name:	name of the policy to choose frequency.
- * @data:	private data for the governor. The devfreq framework does not
- *		touch this value.
+ * @data:	devfreq driver pass to governors, governor should not change it.
  */
 struct devfreq *devfreq_add_device(struct device *dev,
 				   struct devfreq_dev_profile *profile,
@@ -1007,8 +1010,7 @@ static void devm_devfreq_dev_release(struct device *dev, void *res)
  * @dev:	the device to add devfreq feature.
  * @profile:	device-specific profile to run devfreq.
  * @governor_name:	name of the policy to choose frequency.
- * @data:	private data for the governor. The devfreq framework does not
- *		touch this value.
+ * @data:	 devfreq driver pass to governors, governor should not change it.
  *
  * This function manages automatically the memory of devfreq device using device
  * resource management and simplify the free operation for memory of devfreq
@@ -1055,7 +1057,7 @@ struct devfreq *devfreq_get_devfreq_by_node(struct device_node *node)
 	mutex_lock(&devfreq_list_lock);
 	list_for_each_entry(devfreq, &devfreq_list, node) {
 		if (devfreq->dev.parent
-			&& devfreq->dev.parent->of_node == node) {
+			&& device_match_of_node(devfreq->dev.parent, node)) {
 			mutex_unlock(&devfreq_list_lock);
 			return devfreq;
 		}

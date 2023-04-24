@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 #include <linux/slab.h>
+#include "messages.h"
 #include "ctree.h"
 #include "subpage.h"
 #include "btrfs_inode.h"
@@ -123,7 +124,7 @@ int btrfs_attach_subpage(const struct btrfs_fs_info *fs_info,
 	struct btrfs_subpage *subpage;
 
 	/*
-	 * We have cases like a dummy extent buffer page, which is not mappped
+	 * We have cases like a dummy extent buffer page, which is not mapped
 	 * and doesn't need to be locked.
 	 */
 	if (page->mapping)
@@ -337,7 +338,7 @@ bool btrfs_subpage_end_and_test_writer(const struct btrfs_fs_info *fs_info,
  *
  * Even with 0 returned, the page still need extra check to make sure
  * it's really the correct page, as the caller is using
- * find_get_pages_contig(), which can race with page invalidating.
+ * filemap_get_folios_contig(), which can race with page invalidating.
  */
 int btrfs_page_start_writer_lock(const struct btrfs_fs_info *fs_info,
 		struct page *page, u64 start, u32 len)
@@ -731,7 +732,7 @@ void btrfs_page_assert_not_dirty(const struct btrfs_fs_info *fs_info,
  *   It should not have any subpage::writers count.
  *   Can be unlocked by unlock_page().
  *   This is the most common locked page for __extent_writepage() called
- *   inside extent_write_cache_pages() or extent_write_full_page().
+ *   inside extent_write_cache_pages().
  *   Rarer cases include the @locked_page from extent_write_locked_range().
  *
  * - Page locked by lock_delalloc_pages()

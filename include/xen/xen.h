@@ -2,6 +2,8 @@
 #ifndef _XEN_XEN_H
 #define _XEN_XEN_H
 
+#include <linux/types.h>
+
 enum xen_domain_type {
 	XEN_NATIVE,		/* running on bare hardware    */
 	XEN_PV_DOMAIN,		/* running in a PV domain      */
@@ -24,8 +26,6 @@ extern bool xen_pvh;
 #define xen_pv_domain()		(xen_domain_type == XEN_PV_DOMAIN)
 #define xen_hvm_domain()	(xen_domain_type == XEN_HVM_DOMAIN)
 #define xen_pvh_domain()	(xen_pvh)
-
-#include <linux/types.h>
 
 extern uint32_t xen_start_flags;
 
@@ -51,14 +51,6 @@ bool xen_biovec_phys_mergeable(const struct bio_vec *vec1,
 #if defined(CONFIG_MEMORY_HOTPLUG) && defined(CONFIG_XEN_BALLOON)
 extern u64 xen_saved_max_mem_size;
 #endif
-
-#include <linux/platform-feature.h>
-
-static inline void xen_set_restricted_virtio_memory_access(void)
-{
-	if (IS_ENABLED(CONFIG_XEN_VIRTIO) && xen_domain())
-		platform_set(PLATFORM_VIRTIO_RESTRICTED_MEM_ACCESS);
-}
 
 #ifdef CONFIG_XEN_UNPOPULATED_ALLOC
 int xen_alloc_unpopulated_pages(unsigned int nr_pages, struct page **pages);

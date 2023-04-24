@@ -37,6 +37,7 @@
 #include <linux/slab.h>
 
 #include "i915_drv.h"
+#include "i915_reg.h"
 #include "gt/intel_engine_regs.h"
 #include "gt/intel_gpu_commands.h"
 #include "gt/intel_gt_regs.h"
@@ -428,7 +429,7 @@ struct cmd_info {
 #define R_VECS	BIT(VECS0)
 #define R_ALL (R_RCS | R_VCS | R_BCS | R_VECS)
 	/* rings that support this cmd: BLT/RCS/VCS/VECS */
-	u16 rings;
+	intel_engine_mask_t rings;
 
 	/* devices that support this cmd: SNB/IVB/HSW/... */
 	u16 devices;

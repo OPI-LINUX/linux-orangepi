@@ -10,8 +10,6 @@
 #include <internal/evsel.h>
 #include <perf/evsel.h>
 #include "symbol_conf.h"
-#include <internal/cpumap.h>
-#include <perf/cpumap.h>
 
 struct bpf_object;
 struct cgroup;
@@ -74,7 +72,9 @@ struct evsel {
 		char			*name;
 		char			*group_name;
 		const char		*pmu_name;
+#ifdef HAVE_LIBTRACEEVENT
 		struct tep_event	*tp_format;
+#endif
 		char			*filter;
 		unsigned long		max_events;
 		double			scale;
@@ -188,6 +188,7 @@ struct perf_missing_features {
 	bool data_page_size;
 	bool code_page_size;
 	bool weight_struct;
+	bool read_lost;
 };
 
 extern struct perf_missing_features perf_missing_features;
@@ -224,10 +225,13 @@ static inline struct evsel *evsel__new(struct perf_event_attr *attr)
 }
 
 struct evsel *evsel__clone(struct evsel *orig);
-struct evsel *evsel__newtp_idx(const char *sys, const char *name, int idx);
 
 int copy_config_terms(struct list_head *dst, struct list_head *src);
 void free_config_terms(struct list_head *config_terms);
+
+
+#ifdef HAVE_LIBTRACEEVENT
+struct evsel *evsel__newtp_idx(const char *sys, const char *name, int idx);
 
 /*
  * Returns pointer with encoded error via <linux/err.h> interface.
@@ -236,10 +240,13 @@ static inline struct evsel *evsel__newtp(const char *sys, const char *name)
 {
 	return evsel__newtp_idx(sys, name, 0);
 }
+#endif
 
 struct evsel *evsel__new_cycles(bool precise, __u32 type, __u64 config);
 
+#ifdef HAVE_LIBTRACEEVENT
 struct tep_event *event_format__new(const char *sys, const char *name);
+#endif
 
 void evsel__init(struct evsel *evsel, struct perf_event_attr *attr, int idx);
 void evsel__exit(struct evsel *evsel);
@@ -271,6 +278,7 @@ extern const char *const evsel__hw_names[PERF_COUNT_HW_MAX];
 extern const char *const evsel__sw_names[PERF_COUNT_SW_MAX];
 extern char *evsel__bpf_counter_events;
 bool evsel__match_bpf_counter_events(const char *name);
+int arch_evsel__hw_name(struct evsel *evsel, char *bf, size_t size);
 
 int __evsel__hw_cache_type_op_res_name(u8 type, u8 op, u8 result, char *bf, size_t size);
 const char *evsel__name(struct evsel *evsel);
@@ -297,6 +305,7 @@ void evsel__set_sample_id(struct evsel *evsel, bool use_sample_identifier);
 
 void arch_evsel__set_sample_weight(struct evsel *evsel);
 void arch_evsel__fixup_new_cycles(struct perf_event_attr *attr);
+void arch__post_evsel_config(struct evsel *evsel, struct perf_event_attr *attr);
 
 int evsel__set_filter(struct evsel *evsel, const char *filter);
 int evsel__append_tp_filter(struct evsel *evsel, const char *filter);
@@ -322,6 +331,7 @@ bool evsel__precise_ip_fallback(struct evsel *evsel);
 
 struct perf_sample;
 
+#ifdef HAVE_LIBTRACEEVENT
 void *evsel__rawptr(struct evsel *evsel, struct perf_sample *sample, const char *name);
 u64 evsel__intval(struct evsel *evsel, struct perf_sample *sample, const char *name);
 
@@ -329,6 +339,7 @@ static inline char *evsel__strval(struct evsel *evsel, struct perf_sample *sampl
 {
 	return evsel__rawptr(evsel, sample, name);
 }
+#endif
 
 struct tep_format_field;
 
@@ -379,6 +390,8 @@ int evsel__parse_sample(struct evsel *evsel, union perf_event *event,
 
 int evsel__parse_sample_timestamp(struct evsel *evsel, union perf_event *event,
 				  u64 *timestamp);
+
+u16 evsel__id_hdr_size(struct evsel *evsel);
 
 static inline struct evsel *evsel__next(struct evsel *evsel)
 {
@@ -493,7 +506,7 @@ struct perf_env *evsel__env(struct evsel *evsel);
 int evsel__store_ids(struct evsel *evsel, struct evlist *evlist);
 
 void evsel__zero_per_pkg(struct evsel *evsel);
-bool evsel__is_hybrid(struct evsel *evsel);
+bool evsel__is_hybrid(const struct evsel *evsel);
 struct evsel *evsel__leader(struct evsel *evsel);
 bool evsel__has_leader(struct evsel *evsel, struct evsel *leader);
 bool evsel__is_leader(struct evsel *evsel);

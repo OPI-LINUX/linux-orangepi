@@ -1384,14 +1384,14 @@ int ice_set_vf_trust(struct net_device *netdev, int vf_id, bool trusted)
 	struct ice_vf *vf;
 	int ret;
 
+	vf = ice_get_vf_by_id(pf, vf_id);
+	if (!vf)
+		return -EINVAL;
+
 	if (ice_is_eswitch_mode_switchdev(pf)) {
 		dev_info(ice_pf_to_dev(pf), "Trusted VF is forbidden in switchdev mode\n");
 		return -EOPNOTSUPP;
 	}
-
-	vf = ice_get_vf_by_id(pf, vf_id);
-	if (!vf)
-		return -EINVAL;
 
 	ret = ice_check_vf_ready_for_cfg(vf);
 	if (ret)
@@ -1549,16 +1549,6 @@ ice_set_vf_bw(struct net_device *netdev, int vf_id, int min_tx_rate,
 
 	vsi = ice_get_vf_vsi(vf);
 	if (!vsi) {
-		ret = -EINVAL;
-		goto out_put_vf;
-	}
-
-	/* when max_tx_rate is zero that means no max Tx rate limiting, so only
-	 * check if max_tx_rate is non-zero
-	 */
-	if (max_tx_rate && min_tx_rate > max_tx_rate) {
-		dev_err(dev, "Cannot set min Tx rate %d Mbps greater than max Tx rate %d Mbps\n",
-			min_tx_rate, max_tx_rate);
 		ret = -EINVAL;
 		goto out_put_vf;
 	}

@@ -116,8 +116,10 @@ static int xlnx_add_cb_for_notify_event(const u32 node_id, const u32 event, cons
 		INIT_LIST_HEAD(&eve_data->cb_list_head);
 
 		cb_data = kmalloc(sizeof(*cb_data), GFP_KERNEL);
-		if (!cb_data)
+		if (!cb_data) {
+			kfree(eve_data);
 			return -ENOMEM;
+		}
 		cb_data->eve_cb = cb_fun;
 		cb_data->agent_data = data;
 
@@ -647,8 +649,7 @@ static int xlnx_event_manager_probe(struct platform_device *pdev)
 	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "soc/event:starting",
 			  xlnx_event_cpuhp_start, xlnx_event_cpuhp_down);
 
-	ret = zynqmp_pm_invoke_fn(PM_IOCTL, 0, IOCTL_REGISTER_SGI, sgi_num,
-				  0, NULL);
+	ret = zynqmp_pm_register_sgi(sgi_num, 0);
 	if (ret) {
 		dev_err(&pdev->dev, "SGI %d Registration over TF-A failed with %d\n", sgi_num, ret);
 		xlnx_event_cleanup_sgi(pdev);
@@ -681,7 +682,7 @@ static int xlnx_event_manager_remove(struct platform_device *pdev)
 		kfree(eve_data);
 	}
 
-	ret = zynqmp_pm_invoke_fn(PM_IOCTL, 0, IOCTL_REGISTER_SGI, 0, 1, NULL);
+	ret = zynqmp_pm_register_sgi(0, 1);
 	if (ret)
 		dev_err(&pdev->dev, "SGI unregistration over TF-A failed with %d\n", ret);
 

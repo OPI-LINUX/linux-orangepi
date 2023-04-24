@@ -498,7 +498,7 @@ static int wm8978_configure_pll(struct snd_soc_component *component)
 
 		if (4 * f_opclk < 3 * f_mclk)
 			/* Have to use OPCLKDIV */
-			opclk_div = (3 * f_mclk / 4 + f_opclk - 1) / f_opclk;
+			opclk_div = DIV_ROUND_UP(3 * f_mclk / 4, f_opclk);
 		else
 			opclk_div = 1;
 
@@ -1005,7 +1005,6 @@ static const struct snd_soc_component_driver soc_component_dev_wm8978 = {
 	.idle_bias_on		= 1,
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
-	.non_legacy_dai_naming	= 1,
 };
 
 static const struct regmap_config wm8978_regmap_config = {

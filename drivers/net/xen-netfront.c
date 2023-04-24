@@ -673,7 +673,7 @@ static int xennet_xdp_xmit(struct net_device *dev, int n,
 	return nxmit;
 }
 
-struct sk_buff *bounce_skb(const struct sk_buff *skb)
+static struct sk_buff *bounce_skb(const struct sk_buff *skb)
 {
 	unsigned int headerlen = skb_headroom(skb);
 	/* Align size to allocate full pages and avoid contiguous data leaks */
@@ -1043,16 +1043,6 @@ static int xennet_get_responses(struct netfront_queue *queue,
 	}
 
 	for (;;) {
-		if (unlikely(rx->status < 0 ||
-			     rx->offset + rx->status > XEN_PAGE_SIZE)) {
-			if (net_ratelimit())
-				dev_warn(dev, "rx->offset: %u, size: %d\n",
-					 rx->offset, rx->status);
-			xennet_move_rx_slot(queue, skb, ref);
-			err = -EINVAL;
-			goto next;
-		}
-
 		/*
 		 * This definitely indicates a bug, either in this driver or in
 		 * the backend driver. In future this should flag the bad
@@ -1062,6 +1052,16 @@ static int xennet_get_responses(struct netfront_queue *queue,
 			if (net_ratelimit())
 				dev_warn(dev, "Bad rx response id %d.\n",
 					 rx->id);
+			err = -EINVAL;
+			goto next;
+		}
+
+		if (unlikely(rx->status < 0 ||
+			     rx->offset + rx->status > XEN_PAGE_SIZE)) {
+			if (net_ratelimit())
+				dev_warn(dev, "rx->offset: %u, size: %d\n",
+					 rx->offset, rx->status);
+			xennet_move_rx_slot(queue, skb, ref);
 			err = -EINVAL;
 			goto next;
 		}
@@ -1392,16 +1392,16 @@ static void xennet_get_stats64(struct net_device *dev,
 		unsigned int start;
 
 		do {
-			start = u64_stats_fetch_begin_irq(&tx_stats->syncp);
+			start = u64_stats_fetch_begin(&tx_stats->syncp);
 			tx_packets = tx_stats->packets;
 			tx_bytes = tx_stats->bytes;
-		} while (u64_stats_fetch_retry_irq(&tx_stats->syncp, start));
+		} while (u64_stats_fetch_retry(&tx_stats->syncp, start));
 
 		do {
-			start = u64_stats_fetch_begin_irq(&rx_stats->syncp);
+			start = u64_stats_fetch_begin(&rx_stats->syncp);
 			rx_packets = rx_stats->packets;
 			rx_bytes = rx_stats->bytes;
-		} while (u64_stats_fetch_retry_irq(&rx_stats->syncp, start));
+		} while (u64_stats_fetch_retry(&rx_stats->syncp, start));
 
 		tot->rx_packets += rx_packets;
 		tot->tx_packets += tx_packets;
@@ -1862,6 +1862,12 @@ static int netfront_resume(struct xenbus_device *dev)
 	netif_tx_unlock_bh(info->netdev);
 
 	xennet_disconnect_backend(info);
+
+	rtnl_lock();
+	if (info->queues)
+		xennet_destroy_queues(info);
+	rtnl_unlock();
+
 	return 0;
 }
 
@@ -2224,8 +2230,7 @@ static int xennet_create_queues(struct netfront_info *info,
 			return ret;
 		}
 
-		netif_napi_add(queue->info->netdev, &queue->napi,
-			       xennet_poll, 64);
+		netif_napi_add(queue->info->netdev, &queue->napi, xennet_poll);
 		if (netif_running(info->netdev))
 			napi_enable(&queue->napi);
 	}
@@ -2464,10 +2469,6 @@ static int xennet_connect(struct net_device *dev)
 		if (queue->tx_irq != queue->rx_irq)
 			notify_remote_via_irq(queue->rx_irq);
 
-		spin_lock_irq(&queue->tx_lock);
-		xennet_tx_buf_gc(queue);
-		spin_unlock_irq(&queue->tx_lock);
-
 		spin_lock_bh(&queue->rx_lock);
 		xennet_alloc_rx_buffers(queue);
 		spin_unlock_bh(&queue->rx_lock);
@@ -2645,7 +2646,7 @@ static void xennet_bus_close(struct xenbus_device *dev)
 	} while (!ret);
 }
 
-static int xennet_remove(struct xenbus_device *dev)
+static void xennet_remove(struct xenbus_device *dev)
 {
 	struct netfront_info *info = dev_get_drvdata(&dev->dev);
 
@@ -2661,8 +2662,6 @@ static int xennet_remove(struct xenbus_device *dev)
 		rtnl_unlock();
 	}
 	xennet_free_netdev(info->netdev);
-
-	return 0;
 }
 
 static const struct xenbus_device_id netfront_ids[] = {

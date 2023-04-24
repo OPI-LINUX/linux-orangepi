@@ -101,8 +101,7 @@ int panfrost_devfreq_init(struct panfrost_device *pfdev)
 		return 0;
 	}
 
-	ret = devm_pm_opp_set_regulators(dev, pfdev->comp->supply_names,
-					 pfdev->comp->num_supplies);
+	ret = devm_pm_opp_set_regulators(dev, pfdev->comp->supply_names);
 	if (ret) {
 		/* Continue if the optional regulator is missing */
 		if (ret != -ENODEV) {
@@ -142,7 +141,7 @@ int panfrost_devfreq_init(struct panfrost_device *pfdev)
 	pfdevfreq->gov_data.downdifferential = 5;
 
 	devfreq = devm_devfreq_add_device(dev, &panfrost_devfreq_profile,
-					  DEVFREQ_GOV_SIMPLE_ONDEMAND,
+					  DEVFREQ_GOV_PERFORMANCE,
 					  &pfdevfreq->gov_data);
 	if (IS_ERR(devfreq)) {
 		DRM_DEV_ERROR(dev, "Couldn't initialize GPU devfreq\n");

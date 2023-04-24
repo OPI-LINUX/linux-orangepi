@@ -120,32 +120,6 @@ void adf_disable_sriov(struct adf_accel_dev *accel_dev)
 }
 EXPORT_SYMBOL_GPL(adf_disable_sriov);
 
-static int adf_sriov_prepare_restart(struct adf_accel_dev *accel_dev)
-{
-	char services[ADF_CFG_MAX_VAL_LEN_IN_BYTES] = {0};
-	int ret;
-
-	ret = adf_cfg_get_param_value(accel_dev, ADF_GENERAL_SEC,
-				      ADF_SERVICES_ENABLED, services);
-
-	adf_dev_stop(accel_dev);
-	adf_dev_shutdown(accel_dev);
-
-	if (!ret) {
-		ret = adf_cfg_section_add(accel_dev, ADF_GENERAL_SEC);
-		if (ret)
-			return ret;
-
-		ret = adf_cfg_add_key_value_param(accel_dev, ADF_GENERAL_SEC,
-						  ADF_SERVICES_ENABLED,
-						  services, ADF_STR);
-		if (ret)
-			return ret;
-	}
-
-	return 0;
-}
-
 /**
  * adf_sriov_configure() - Enable SRIOV for the device
  * @pdev:  Pointer to PCI device.
@@ -185,7 +159,7 @@ int adf_sriov_configure(struct pci_dev *pdev, int numvfs)
 			return -EBUSY;
 		}
 
-		ret = adf_sriov_prepare_restart(accel_dev);
+		ret = adf_dev_shutdown_cache_cfg(accel_dev);
 		if (ret)
 			return ret;
 	}
@@ -196,6 +170,10 @@ int adf_sriov_configure(struct pci_dev *pdev, int numvfs)
 	if (adf_cfg_add_key_value_param(accel_dev, ADF_KERNEL_SEC,
 					ADF_NUM_CY, (void *)&val, ADF_DEC))
 		return -EFAULT;
+	ret = adf_cfg_add_key_value_param(accel_dev, ADF_KERNEL_SEC, ADF_NUM_DC,
+					  &val, ADF_DEC);
+	if (ret)
+		return ret;
 
 	set_bit(ADF_STATUS_CONFIGURED, &accel_dev->status);
 

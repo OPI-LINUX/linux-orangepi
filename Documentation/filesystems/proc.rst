@@ -47,6 +47,7 @@ fixes/update part 1.1  Stefani Seibold <stefani@seibold.net>    June 9 2009
   3.10  /proc/<pid>/timerslack_ns - Task timerslack value
   3.11	/proc/<pid>/patch_state - Livepatch patch operation state
   3.12	/proc/<pid>/arch_status - Task architecture specific information
+  3.13  /proc/<pid>/fd - List of symlinks to open files
 
   4	Configuring procfs
   4.1	Mount options
@@ -245,7 +246,8 @@ It's slow but very precise.
  Ngid                        NUMA group ID (0 if none)
  Pid                         process id
  PPid                        process id of the parent process
- TracerPid                   PID of process tracing this process (0 if not)
+ TracerPid                   PID of process tracing this process (0 if not, or
+                             the tracer is outside of the current pid namespace)
  Uid                         Real, effective, saved set, and  file system UIDs
  Gid                         Real, effective, saved set, and  file system GIDs
  FDSize                      number of file descriptor slots currently allocated
@@ -426,14 +428,16 @@ with the memory region, as the case would be with BSS (uninitialized data).
 The "pathname" shows the name associated file for this mapping.  If the mapping
 is not associated with a file:
 
- =============              ====================================
+ ===================        ===========================================
  [heap]                     the heap of the program
  [stack]                    the stack of the main process
  [vdso]                     the "virtual dynamic shared object",
                             the kernel system call handler
- [anon:<name>]              an anonymous mapping that has been
+ [anon:<name>]              a private anonymous mapping that has been
                             named by userspace
- =============              ====================================
+ [anon_shmem:<name>]        an anonymous shared memory mapping that has
+                            been named by userspace
+ ===================        ===========================================
 
  or if empty, the mapping is anonymous.
 
@@ -448,6 +452,7 @@ Memory Area, or VMA) there is a series of lines such as the following::
     MMUPageSize:           4 kB
     Rss:                 892 kB
     Pss:                 374 kB
+    Pss_Dirty:             0 kB
     Shared_Clean:        892 kB
     Shared_Dirty:          0 kB
     Private_Clean:         0 kB
@@ -479,7 +484,9 @@ dirty shared and private pages in the mapping.
 The "proportional set size" (PSS) of a process is the count of pages it has
 in memory, where each page is divided by the number of processes sharing it.
 So if a process has 1000 pages all to itself, and 1000 shared with one other
-process, its PSS will be 1500.
+process, its PSS will be 1500.  "Pss_Dirty" is the portion of PSS which
+consists of dirty pages.  ("Pss_Clean" is not included, but it can be
+calculated by subtracting "Pss_Dirty" from "Pss".)
 
 Note that even a page which is part of a MAP_SHARED mapping, but has only
 a single pte mapped, i.e.  is currently used by only one process, is accounted
@@ -514,8 +521,10 @@ replaced by copy-on-write) part of the underlying shmem object out on swap.
 "SwapPss" shows proportional swap share of this mapping. Unlike "Swap", this
 does not take into account swapped out page of underlying shmem objects.
 "Locked" indicates whether the mapping is locked in memory or not.
+
 "THPeligible" indicates whether the mapping is eligible for allocating THP
-pages - 1 if true, 0 otherwise. It just shows the current status.
+pages as well as the THP is PMD mappable or not - 1 if true, 0 otherwise.
+It just shows the current status.
 
 "VmFlags" field deserves a separate description. This member represents the
 kernel flags associated with the particular virtual memory area in two letter
@@ -977,6 +986,7 @@ Example output. You may not have all of these fields.
     SUnreclaim:       142336 kB
     KernelStack:       11168 kB
     PageTables:        20540 kB
+    SecPageTables:         0 kB
     NFS_Unstable:          0 kB
     Bounce:                0 kB
     WritebackTmp:          0 kB
@@ -1085,6 +1095,9 @@ KernelStack
               Memory consumed by the kernel stacks of all tasks
 PageTables
               Memory consumed by userspace page tables
+SecPageTables
+              Memory consumed by secondary page tables, this currently
+              currently includes KVM mmu allocations on x86 and arm64.
 NFS_Unstable
               Always zero. Previous counted pages which had been written to
               the server, but has not been committed to stable storage.
@@ -1109,7 +1122,7 @@ CommitLimit
               yield a CommitLimit of 7.3G.
 
               For more details, see the memory overcommit documentation
-              in vm/overcommit-accounting.
+              in mm/overcommit-accounting.
 Committed_AS
               The amount of memory presently allocated on the system.
               The committed memory is a sum of all of the memory which
@@ -2139,6 +2152,22 @@ AVX512_elapsed_ms
   A special value of '-1' indicates that no AVX512 usage was recorded, thus
   the task is unlikely an AVX512 user, but depends on the workload and the
   scheduling scenario, it also could be a false negative mentioned above.
+
+3.13 /proc/<pid>/fd - List of symlinks to open files
+-------------------------------------------------------
+This directory contains symbolic links which represent open files
+the process is maintaining.  Example output::
+
+  lr-x------ 1 root root 64 Sep 20 17:53 0 -> /dev/null
+  l-wx------ 1 root root 64 Sep 20 17:53 1 -> /dev/null
+  lrwx------ 1 root root 64 Sep 20 17:53 10 -> 'socket:[12539]'
+  lrwx------ 1 root root 64 Sep 20 17:53 11 -> 'socket:[12540]'
+  lrwx------ 1 root root 64 Sep 20 17:53 12 -> 'socket:[12542]'
+
+The number of open files for the process is stored in 'size' member
+of stat() output for /proc/<pid>/fd for fast access.
+-------------------------------------------------------
+
 
 Chapter 4: Configuring procfs
 =============================

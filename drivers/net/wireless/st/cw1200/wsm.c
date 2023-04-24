@@ -360,8 +360,17 @@ static int wsm_tx_confirm(struct cw1200_common *priv,
 	tx_confirm.tx_rate = WSM_GET8(buf);
 	tx_confirm.ack_failures = WSM_GET8(buf);
 	tx_confirm.flags = WSM_GET16(buf);
+	if (priv->fw_api == CW1200_FW_API_XRADIO) {
+		/* rate_try[3] */
+		WSM_GET32(buf);
+		WSM_GET32(buf);
+		WSM_GET32(buf);
+	}
 	tx_confirm.media_delay = WSM_GET32(buf);
 	tx_confirm.tx_queue_delay = WSM_GET32(buf);
+
+	if (priv->fw_api == CW1200_FW_API_XRADIO)
+		link_id = cw1200_queue_get_link_id(tx_confirm.packet_id);
 
 	cw1200_tx_confirm_cb(priv, link_id, &tx_confirm);
 	return 0;
@@ -1594,7 +1603,7 @@ static int cw1200_get_prio_queue(struct cw1200_common *priv,
 		edca = &priv->edca.params[i];
 		score = ((edca->aifns + edca->cwmin) << 16) +
 			((edca->cwmax - edca->cwmin) *
-			 (get_random_int() & 0xFFFF));
+			 get_random_u16());
 		if (score < best && (winner < 0 || i != 3)) {
 			best = score;
 			winner = i;

@@ -1027,6 +1027,7 @@ static const u8 cec_msg_size[256] = {
 	[CEC_MSG_REPORT_SHORT_AUDIO_DESCRIPTOR] = 2 | DIRECTED,
 	[CEC_MSG_REQUEST_SHORT_AUDIO_DESCRIPTOR] = 2 | DIRECTED,
 	[CEC_MSG_SET_SYSTEM_AUDIO_MODE] = 3 | BOTH,
+	[CEC_MSG_SET_AUDIO_VOLUME_LEVEL] = 3 | DIRECTED,
 	[CEC_MSG_SYSTEM_AUDIO_MODE_REQUEST] = 2 | DIRECTED,
 	[CEC_MSG_SYSTEM_AUDIO_MODE_STATUS] = 3 | DIRECTED,
 	[CEC_MSG_SET_AUDIO_RATE] = 3 | DIRECTED,
@@ -1309,8 +1310,11 @@ static int cec_config_log_addr(struct cec_adapter *adap,
 	 * we assume that something is really weird and that it is not a
 	 * good idea to try and claim this logical address.
 	 */
-	if (i == max_retries)
+	if (i == max_retries) {
+		dprintk(0, "polling for LA %u failed with tx_status=0x%04x\n",
+			log_addr, msg.tx_status);
 		return 0;
+	}
 
 	/*
 	 * Message not acknowledged, so this logical
@@ -1671,8 +1675,15 @@ void cec_s_phys_addr(struct cec_adapter *adap, u16 phys_addr, bool block)
 	if (IS_ERR_OR_NULL(adap))
 		return;
 
+	cancel_delayed_work_sync(&adap->debounce_work);
+
 	mutex_lock(&adap->lock);
-	__cec_s_phys_addr(adap, phys_addr, block);
+	if (cec_debounce_ms > 0 && !block && phys_addr == CEC_PHYS_ADDR_INVALID &&
+	    adap->phys_addr != phys_addr)
+		schedule_delayed_work(&adap->debounce_work,
+				      msecs_to_jiffies(cec_debounce_ms));
+	else
+		__cec_s_phys_addr(adap, phys_addr, block);
 	mutex_unlock(&adap->lock);
 }
 EXPORT_SYMBOL_GPL(cec_s_phys_addr);

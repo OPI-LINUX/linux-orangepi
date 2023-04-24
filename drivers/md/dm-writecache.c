@@ -22,7 +22,7 @@
 
 #define HIGH_WATERMARK			50
 #define LOW_WATERMARK			45
-#define MAX_WRITEBACK_JOBS		0
+#define MAX_WRITEBACK_JOBS		min(0x10000000 / PAGE_SIZE, totalram_pages() / 16)
 #define ENDIO_LATENCY			16
 #define WRITEBACK_LATENCY		64
 #define AUTOCOMMIT_BLOCKS_SSD		65536
@@ -128,9 +128,9 @@ struct dm_writecache {
 	unsigned long max_age;
 	unsigned long pause;
 
-	unsigned uncommitted_blocks;
-	unsigned autocommit_blocks;
-	unsigned max_writeback_jobs;
+	unsigned int uncommitted_blocks;
+	unsigned int autocommit_blocks;
+	unsigned int max_writeback_jobs;
 
 	int error;
 
@@ -155,7 +155,7 @@ struct dm_writecache {
 	sector_t data_device_sectors;
 	void *block_start;
 	struct wc_entry *entries;
-	unsigned block_size;
+	unsigned int block_size;
 	unsigned char block_size_bits;
 
 	bool pmem_mode:1;
@@ -178,13 +178,13 @@ struct dm_writecache {
 	bool metadata_only:1;
 	bool pause_set:1;
 
-	unsigned high_wm_percent_value;
-	unsigned low_wm_percent_value;
-	unsigned autocommit_time_value;
-	unsigned max_age_value;
-	unsigned pause_value;
+	unsigned int high_wm_percent_value;
+	unsigned int low_wm_percent_value;
+	unsigned int autocommit_time_value;
+	unsigned int max_age_value;
+	unsigned int pause_value;
 
-	unsigned writeback_all;
+	unsigned int writeback_all;
 	struct workqueue_struct *writeback_wq;
 	struct work_struct writeback_work;
 	struct work_struct flush_work;
@@ -202,7 +202,7 @@ struct dm_writecache {
 
 	struct dm_kcopyd_client *dm_kcopyd;
 	unsigned long *dirty_bitmap;
-	unsigned dirty_bitmap_size;
+	unsigned int dirty_bitmap_size;
 
 	struct bio_set bio_set;
 	mempool_t copy_pool;
@@ -227,7 +227,7 @@ struct writeback_struct {
 	struct list_head endio_entry;
 	struct dm_writecache *wc;
 	struct wc_entry **wc_list;
-	unsigned wc_list_n;
+	unsigned int wc_list_n;
 	struct wc_entry *wc_list_inline[WB_LIST_INLINE];
 	struct bio bio;
 };
@@ -236,7 +236,7 @@ struct copy_struct {
 	struct list_head endio_entry;
 	struct dm_writecache *wc;
 	struct wc_entry *e;
-	unsigned n_entries;
+	unsigned int n_entries;
 	int error;
 };
 
@@ -369,7 +369,7 @@ static struct page *persistent_memory_page(void *addr)
 		return virt_to_page(addr);
 }
 
-static unsigned persistent_memory_page_offset(void *addr)
+static unsigned int persistent_memory_page_offset(void *addr)
 {
 	return (unsigned long)addr & (PAGE_SIZE - 1);
 }
@@ -502,11 +502,11 @@ static void ssd_commit_flushed(struct dm_writecache *wc, bool wait_for_ios)
 		COMPLETION_INITIALIZER_ONSTACK(endio.c),
 		ATOMIC_INIT(1),
 	};
-	unsigned bitmap_bits = wc->dirty_bitmap_size * 8;
-	unsigned i = 0;
+	unsigned int bitmap_bits = wc->dirty_bitmap_size * 8;
+	unsigned int i = 0;
 
 	while (1) {
-		unsigned j;
+		unsigned int j;
 		i = find_next_bit(wc->dirty_bitmap, bitmap_bits, i);
 		if (unlikely(i == bitmap_bits))
 			break;
@@ -523,8 +523,7 @@ static void ssd_commit_flushed(struct dm_writecache *wc, bool wait_for_ios)
 
 		region.sector += wc->start_sector;
 		atomic_inc(&endio.count);
-		req.bi_op = REQ_OP_WRITE;
-		req.bi_op_flags = REQ_SYNC;
+		req.bi_opf = REQ_OP_WRITE | REQ_SYNC;
 		req.mem.type = DM_IO_VMA;
 		req.mem.ptr.vma = (char *)wc->memory_map + (size_t)i * BITMAP_GRANULARITY;
 		req.client = wc->dm_io;
@@ -562,8 +561,7 @@ static void ssd_commit_superblock(struct dm_writecache *wc)
 
 	region.sector += wc->start_sector;
 
-	req.bi_op = REQ_OP_WRITE;
-	req.bi_op_flags = REQ_SYNC | REQ_FUA;
+	req.bi_opf = REQ_OP_WRITE | REQ_SYNC | REQ_FUA;
 	req.mem.type = DM_IO_VMA;
 	req.mem.ptr.vma = (char *)wc->memory_map;
 	req.client = wc->dm_io;
@@ -592,8 +590,7 @@ static void writecache_disk_flush(struct dm_writecache *wc, struct dm_dev *dev)
 	region.bdev = dev->bdev;
 	region.sector = 0;
 	region.count = 0;
-	req.bi_op = REQ_OP_WRITE;
-	req.bi_op_flags = REQ_PREFLUSH;
+	req.bi_opf = REQ_OP_WRITE | REQ_PREFLUSH;
 	req.mem.type = DM_IO_KMEM;
 	req.mem.ptr.addr = NULL;
 	req.client = wc->dm_io;
@@ -981,8 +978,7 @@ static int writecache_read_metadata(struct dm_writecache *wc, sector_t n_sectors
 	region.bdev = wc->ssd_dev->bdev;
 	region.sector = wc->start_sector;
 	region.count = n_sectors;
-	req.bi_op = REQ_OP_READ;
-	req.bi_op_flags = REQ_SYNC;
+	req.bi_opf = REQ_OP_READ | REQ_SYNC;
 	req.mem.type = DM_IO_VMA;
 	req.mem.ptr.vma = (char *)wc->memory_map;
 	req.client = wc->dm_io;
@@ -1104,7 +1100,7 @@ erase_this:
 	wc_unlock(wc);
 }
 
-static int process_flush_mesg(unsigned argc, char **argv, struct dm_writecache *wc)
+static int process_flush_mesg(unsigned int argc, char **argv, struct dm_writecache *wc)
 {
 	if (argc != 1)
 		return -EINVAL;
@@ -1137,7 +1133,7 @@ static int process_flush_mesg(unsigned argc, char **argv, struct dm_writecache *
 	return 0;
 }
 
-static int process_flush_on_suspend_mesg(unsigned argc, char **argv, struct dm_writecache *wc)
+static int process_flush_on_suspend_mesg(unsigned int argc, char **argv, struct dm_writecache *wc)
 {
 	if (argc != 1)
 		return -EINVAL;
@@ -1157,7 +1153,7 @@ static void activate_cleaner(struct dm_writecache *wc)
 	wc->freelist_low_watermark = wc->n_blocks;
 }
 
-static int process_cleaner_mesg(unsigned argc, char **argv, struct dm_writecache *wc)
+static int process_cleaner_mesg(unsigned int argc, char **argv, struct dm_writecache *wc)
 {
 	if (argc != 1)
 		return -EINVAL;
@@ -1171,7 +1167,7 @@ static int process_cleaner_mesg(unsigned argc, char **argv, struct dm_writecache
 	return 0;
 }
 
-static int process_clear_stats_mesg(unsigned argc, char **argv, struct dm_writecache *wc)
+static int process_clear_stats_mesg(unsigned int argc, char **argv, struct dm_writecache *wc)
 {
 	if (argc != 1)
 		return -EINVAL;
@@ -1183,8 +1179,8 @@ static int process_clear_stats_mesg(unsigned argc, char **argv, struct dm_writec
 	return 0;
 }
 
-static int writecache_message(struct dm_target *ti, unsigned argc, char **argv,
-			      char *result, unsigned maxlen)
+static int writecache_message(struct dm_target *ti, unsigned int argc, char **argv,
+			      char *result, unsigned int maxlen)
 {
 	int r = -EINVAL;
 	struct dm_writecache *wc = ti->private;
@@ -1242,9 +1238,9 @@ static void memcpy_flushcache_optimized(void *dest, void *source, size_t size)
 static void bio_copy_block(struct dm_writecache *wc, struct bio *bio, void *data)
 {
 	void *buf;
-	unsigned size;
+	unsigned int size;
 	int rw = bio_data_dir(bio);
-	unsigned remaining_size = wc->block_size;
+	unsigned int remaining_size = wc->block_size;
 
 	do {
 		struct bio_vec bv = bio_iter_iovec(bio, bio->bi_iter);
@@ -1329,8 +1325,8 @@ enum wc_map_op {
 	WC_MAP_ERROR,
 };
 
-static enum wc_map_op writecache_map_remap_origin(struct dm_writecache *wc, struct bio *bio,
-						  struct wc_entry *e)
+static void writecache_map_remap_origin(struct dm_writecache *wc, struct bio *bio,
+					struct wc_entry *e)
 {
 	if (e) {
 		sector_t next_boundary =
@@ -1338,8 +1334,6 @@ static enum wc_map_op writecache_map_remap_origin(struct dm_writecache *wc, stru
 		if (next_boundary < bio->bi_iter.bi_size >> SECTOR_SHIFT)
 			dm_accept_partial_bio(bio, next_boundary);
 	}
-
-	return WC_MAP_REMAP_ORIGIN;
 }
 
 static enum wc_map_op writecache_map_read(struct dm_writecache *wc, struct bio *bio)
@@ -1366,16 +1360,18 @@ read_next_block:
 			map_op = WC_MAP_REMAP;
 		}
 	} else {
-		map_op = writecache_map_remap_origin(wc, bio, e);
+		writecache_map_remap_origin(wc, bio, e);
+		wc->stats.reads += (bio->bi_iter.bi_size - wc->block_size) >> wc->block_size_bits;
+		map_op = WC_MAP_REMAP_ORIGIN;
 	}
 
 	return map_op;
 }
 
-static enum wc_map_op writecache_bio_copy_ssd(struct dm_writecache *wc, struct bio *bio,
-					      struct wc_entry *e, bool search_used)
+static void writecache_bio_copy_ssd(struct dm_writecache *wc, struct bio *bio,
+				    struct wc_entry *e, bool search_used)
 {
-	unsigned bio_size = wc->block_size;
+	unsigned int bio_size = wc->block_size;
 	sector_t start_cache_sec = cache_sector(wc, e);
 	sector_t current_cache_sec = start_cache_sec + (bio_size >> SECTOR_SHIFT);
 
@@ -1413,14 +1409,15 @@ static enum wc_map_op writecache_bio_copy_ssd(struct dm_writecache *wc, struct b
 	bio->bi_iter.bi_sector = start_cache_sec;
 	dm_accept_partial_bio(bio, bio_size >> SECTOR_SHIFT);
 
+	wc->stats.writes += bio->bi_iter.bi_size >> wc->block_size_bits;
+	wc->stats.writes_allocate += (bio->bi_iter.bi_size - wc->block_size) >> wc->block_size_bits;
+
 	if (unlikely(wc->uncommitted_blocks >= wc->autocommit_blocks)) {
 		wc->uncommitted_blocks = 0;
 		queue_work(wc->writeback_wq, &wc->flush_work);
 	} else {
 		writecache_schedule_autocommit(wc);
 	}
-
-	return WC_MAP_REMAP;
 }
 
 static enum wc_map_op writecache_map_write(struct dm_writecache *wc, struct bio *bio)
@@ -1430,9 +1427,10 @@ static enum wc_map_op writecache_map_write(struct dm_writecache *wc, struct bio 
 	do {
 		bool found_entry = false;
 		bool search_used = false;
-		wc->stats.writes++;
-		if (writecache_has_error(wc))
+		if (writecache_has_error(wc)) {
+			wc->stats.writes += bio->bi_iter.bi_size >> wc->block_size_bits;
 			return WC_MAP_ERROR;
+		}
 		e = writecache_find_entry(wc, bio->bi_iter.bi_sector, 0);
 		if (e) {
 			if (!writecache_entry_is_committed(wc, e)) {
@@ -1456,9 +1454,11 @@ static enum wc_map_op writecache_map_write(struct dm_writecache *wc, struct bio 
 		if (unlikely(!e)) {
 			if (!WC_MODE_PMEM(wc) && !found_entry) {
 direct_write:
-				wc->stats.writes_around++;
 				e = writecache_find_entry(wc, bio->bi_iter.bi_sector, WFE_RETURN_FOLLOWING);
-				return writecache_map_remap_origin(wc, bio, e);
+				writecache_map_remap_origin(wc, bio, e);
+				wc->stats.writes_around += bio->bi_iter.bi_size >> wc->block_size_bits;
+				wc->stats.writes += bio->bi_iter.bi_size >> wc->block_size_bits;
+				return WC_MAP_REMAP_ORIGIN;
 			}
 			wc->stats.writes_blocked_on_freelist++;
 			writecache_wait_on_freelist(wc);
@@ -1469,10 +1469,13 @@ direct_write:
 		wc->uncommitted_blocks++;
 		wc->stats.writes_allocate++;
 bio_copy:
-		if (WC_MODE_PMEM(wc))
+		if (WC_MODE_PMEM(wc)) {
 			bio_copy_block(wc, bio, memory_data(wc, e));
-		else
-			return writecache_bio_copy_ssd(wc, bio, e, search_used);
+			wc->stats.writes++;
+		} else {
+			writecache_bio_copy_ssd(wc, bio, e, search_used);
+			return WC_MAP_REMAP;
+		}
 	} while (bio->bi_iter.bi_size);
 
 	if (unlikely(bio->bi_opf & REQ_FUA || wc->uncommitted_blocks >= wc->autocommit_blocks))
@@ -1507,7 +1510,7 @@ static enum wc_map_op writecache_map_flush(struct dm_writecache *wc, struct bio 
 
 static enum wc_map_op writecache_map_discard(struct dm_writecache *wc, struct bio *bio)
 {
-	wc->stats.discards++;
+	wc->stats.discards += bio->bi_iter.bi_size >> wc->block_size_bits;
 
 	if (writecache_has_error(wc))
 		return WC_MAP_ERROR;
@@ -1537,7 +1540,7 @@ static int writecache_map(struct dm_target *ti, struct bio *bio)
 
 	bio->bi_iter.bi_sector = dm_target_offset(ti, bio->bi_iter.bi_sector);
 
-	if (unlikely((((unsigned)bio->bi_iter.bi_sector | bio_sectors(bio)) &
+	if (unlikely((((unsigned int)bio->bi_iter.bi_sector | bio_sectors(bio)) &
 				(wc->block_size / 512 - 1)) != 0)) {
 		DMERR("I/O is not aligned, sector %llu, size %u, block size %u",
 		      (unsigned long long)bio->bi_iter.bi_sector,
@@ -1591,7 +1594,8 @@ done:
 
 	default:
 		BUG();
-		return -1;
+		wc_unlock(wc);
+		return DM_MAPIO_KILL;
 	}
 }
 
@@ -1662,7 +1666,7 @@ static void writecache_copy_endio(int read_err, unsigned long write_err, void *p
 
 static void __writecache_endio_pmem(struct dm_writecache *wc, struct list_head *list)
 {
-	unsigned i;
+	unsigned int i;
 	struct writeback_struct *wb;
 	struct wc_entry *e;
 	unsigned long n_walked = 0;
@@ -1778,7 +1782,7 @@ pop_from_list:
 static bool wc_add_block(struct writeback_struct *wb, struct wc_entry *e)
 {
 	struct dm_writecache *wc = wb->wc;
-	unsigned block_size = wc->block_size;
+	unsigned int block_size = wc->block_size;
 	void *address = memory_data(wc, e);
 
 	persistent_memory_flush_cache(address, block_size);
@@ -1813,7 +1817,7 @@ static void __writecache_writeback_pmem(struct dm_writecache *wc, struct writeba
 	struct wc_entry *e, *f;
 	struct bio *bio;
 	struct writeback_struct *wb;
-	unsigned max_pages;
+	unsigned int max_pages;
 
 	while (wbl->size) {
 		wbl->size--;
@@ -1876,7 +1880,7 @@ static void __writecache_writeback_ssd(struct dm_writecache *wc, struct writebac
 	struct copy_struct *c;
 
 	while (wbl->size) {
-		unsigned n_sectors;
+		unsigned int n_sectors;
 
 		wbl->size--;
 		e = container_of(wbl->list.prev, struct wc_entry, lru);
@@ -2088,7 +2092,7 @@ restart:
 	}
 }
 
-static int calculate_memory_size(uint64_t device_size, unsigned block_size,
+static int calculate_memory_size(uint64_t device_size, unsigned int block_size,
 				 size_t *n_blocks_p, size_t *n_metadata_blocks_p)
 {
 	uint64_t n_blocks, offset;
@@ -2203,12 +2207,12 @@ static void writecache_dtr(struct dm_target *ti)
 	kfree(wc);
 }
 
-static int writecache_ctr(struct dm_target *ti, unsigned argc, char **argv)
+static int writecache_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 {
 	struct dm_writecache *wc;
 	struct dm_arg_set as;
 	const char *string;
-	unsigned opt_params;
+	unsigned int opt_params;
 	size_t offset, data_size;
 	int i, r;
 	char dummy;
@@ -2415,7 +2419,7 @@ static int writecache_ctr(struct dm_target *ti, unsigned argc, char **argv)
 				goto invalid_optional;
 			wc->autocommit_blocks_set = true;
 		} else if (!strcasecmp(string, "autocommit_time") && opt_params >= 1) {
-			unsigned autocommit_msecs;
+			unsigned int autocommit_msecs;
 			string = dm_shift_arg(&as), opt_params--;
 			if (sscanf(string, "%u%c", &autocommit_msecs, &dummy) != 1)
 				goto invalid_optional;
@@ -2425,7 +2429,7 @@ static int writecache_ctr(struct dm_target *ti, unsigned argc, char **argv)
 			wc->autocommit_time_value = autocommit_msecs;
 			wc->autocommit_time_set = true;
 		} else if (!strcasecmp(string, "max_age") && opt_params >= 1) {
-			unsigned max_age_msecs;
+			unsigned int max_age_msecs;
 			string = dm_shift_arg(&as), opt_params--;
 			if (sscanf(string, "%u%c", &max_age_msecs, &dummy) != 1)
 				goto invalid_optional;
@@ -2450,7 +2454,7 @@ static int writecache_ctr(struct dm_target *ti, unsigned argc, char **argv)
 		} else if (!strcasecmp(string, "metadata_only")) {
 			wc->metadata_only = true;
 		} else if (!strcasecmp(string, "pause_writeback") && opt_params >= 1) {
-			unsigned pause_msecs;
+			unsigned int pause_msecs;
 			if (WC_MODE_PMEM(wc))
 				goto invalid_optional;
 			string = dm_shift_arg(&as), opt_params--;
@@ -2649,11 +2653,11 @@ bad:
 }
 
 static void writecache_status(struct dm_target *ti, status_type_t type,
-			      unsigned status_flags, char *result, unsigned maxlen)
+			      unsigned int status_flags, char *result, unsigned int maxlen)
 {
 	struct dm_writecache *wc = ti->private;
-	unsigned extra_args;
-	unsigned sz = 0;
+	unsigned int extra_args;
+	unsigned int sz = 0;
 
 	switch (type) {
 	case STATUSTYPE_INFO:

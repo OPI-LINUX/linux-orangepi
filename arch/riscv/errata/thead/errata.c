@@ -5,6 +5,7 @@
 
 #include <linux/bug.h>
 #include <linux/kernel.h>
+#include <linux/memory.h>
 #include <linux/module.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
@@ -14,40 +15,68 @@
 #include <asm/patch.h>
 #include <asm/vendorid_list.h>
 
-struct errata_info {
-	char name[ERRATA_STRING_LENGTH_MAX];
-	bool (*check_func)(unsigned long arch_id, unsigned long impid);
-	unsigned int stage;
-};
-
-static bool errata_mt_check_func(unsigned long  arch_id, unsigned long impid)
+static bool errata_probe_pbmt(unsigned int stage,
+			      unsigned long arch_id, unsigned long impid)
 {
+	if (!IS_ENABLED(CONFIG_ERRATA_THEAD_PBMT))
+		return false;
+
 	if (arch_id != 0 || impid != 0)
 		return false;
+
+	if (stage == RISCV_ALTERNATIVES_EARLY_BOOT ||
+	    stage == RISCV_ALTERNATIVES_MODULE)
+		return true;
+
+	return false;
+}
+
+static bool errata_probe_cmo(unsigned int stage,
+			     unsigned long arch_id, unsigned long impid)
+{
+	if (!IS_ENABLED(CONFIG_ERRATA_THEAD_CMO))
+		return false;
+
+	if (arch_id != 0 || impid != 0)
+		return false;
+
+	if (stage == RISCV_ALTERNATIVES_EARLY_BOOT)
+		return false;
+
+	riscv_cbom_block_size = L1_CACHE_BYTES;
+	riscv_noncoherent_supported();
 	return true;
 }
 
-static const struct errata_info errata_list[ERRATA_THEAD_NUMBER] = {
-	{
-		.name = "memory-types",
-		.stage = RISCV_ALTERNATIVES_EARLY_BOOT,
-		.check_func = errata_mt_check_func
-	},
-};
-
-static u32 thead_errata_probe(unsigned int stage, unsigned long archid, unsigned long impid)
+static bool errata_probe_pmu(unsigned int stage,
+			     unsigned long arch_id, unsigned long impid)
 {
-	const struct errata_info *info;
+	if (!IS_ENABLED(CONFIG_ERRATA_THEAD_PMU))
+		return false;
+
+	/* target-c9xx cores report arch_id and impid as 0 */
+	if (arch_id != 0 || impid != 0)
+		return false;
+
+	if (stage == RISCV_ALTERNATIVES_EARLY_BOOT)
+		return false;
+
+	return true;
+}
+
+static u32 thead_errata_probe(unsigned int stage,
+			      unsigned long archid, unsigned long impid)
+{
 	u32 cpu_req_errata = 0;
-	int idx;
 
-	for (idx = 0; idx < ERRATA_THEAD_NUMBER; idx++) {
-		info = &errata_list[idx];
+	if (errata_probe_pbmt(stage, archid, impid))
+		cpu_req_errata |= BIT(ERRATA_THEAD_PBMT);
 
-		if ((stage == RISCV_ALTERNATIVES_MODULE ||
-		     info->stage == stage) && info->check_func(archid, impid))
-			cpu_req_errata |= (1U << idx);
-	}
+	if (errata_probe_cmo(stage, archid, impid))
+		cpu_req_errata |= BIT(ERRATA_THEAD_CMO);
+
+	if (errata_probe_pmu(stage, archid, impid))
+		cpu_req_errata |= BIT(ERRATA_THEAD_PMU);
 
 	return cpu_req_errata;
 }
@@ -69,11 +98,14 @@ void __init_or_module thead_errata_patch_func(struct alt_entry *begin, struct al
 		tmp = (1U << alt->errata_id);
 		if (cpu_req_errata & tmp) {
 			/* On vm-alternatives, the mmu isn't running yet */
-			if (stage == RISCV_ALTERNATIVES_EARLY_BOOT)
+			if (stage == RISCV_ALTERNATIVES_EARLY_BOOT) {
 				memcpy((void *)__pa_symbol(alt->old_ptr),
 				       (void *)__pa_symbol(alt->alt_ptr), alt->alt_len);
-			else
+			} else {
+				mutex_lock(&text_mutex);
 				patch_text_nosync(alt->old_ptr, alt->alt_ptr, alt->alt_len);
+				mutex_unlock(&text_mutex);
+			}
 		}
 	}
 

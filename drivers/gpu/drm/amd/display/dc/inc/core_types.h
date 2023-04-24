@@ -39,6 +39,8 @@
 #include "panel_cntl.h"
 
 #define MAX_CLOCK_SOURCES 7
+#define MAX_SVP_PHANTOM_STREAMS 2
+#define MAX_SVP_PHANTOM_PLANES 2
 
 void enable_surface_flip_reporting(struct dc_plane_state *plane_state,
 		uint32_t controller_id);
@@ -96,6 +98,7 @@ struct resource_funcs {
 	struct panel_cntl*(*panel_cntl_create)(
 		const struct panel_cntl_init_data *panel_cntl_init_data);
 	struct link_encoder *(*link_enc_create)(
+			struct dc_context *ctx,
 			const struct encoder_init_data *init);
 	/* Create a minimal link encoder object with no dc_link object
 	 * associated with it. */
@@ -112,6 +115,13 @@ struct resource_funcs {
 				int vlevel);
 	void (*update_soc_for_wm_a)(
 				struct dc *dc, struct dc_state *context);
+
+	/**
+	 * @populate_dml_pipes - Populate pipe data struct
+	 *
+	 * Returns:
+	 * Total of pipes available in the specific ASIC.
+	 */
 	int (*populate_dml_pipes)(
 		struct dc *dc,
 		struct dc_state *context,
@@ -143,10 +153,37 @@ struct resource_funcs {
 		struct dc *dc,
 		struct dc_state *context);
 
+	/*
+	 * Acquires a free pipe for the head pipe.
+	 * The head pipe is first pipe in the current context that matches the stream
+	 *  and does not have a top pipe or prev_odm_pipe.
+	 */
 	struct pipe_ctx *(*acquire_idle_pipe_for_layer)(
 			struct dc_state *context,
 			const struct resource_pool *pool,
 			struct dc_stream_state *stream);
+
+	/*
+	 * Acquires a free pipe for the head pipe with some additional checks for odm.
+	 * The head pipe is passed in as an argument unlike acquire_idle_pipe_for_layer
+	 *  where it is read from the context.  So this allows us look for different
+	 *  idle_pipe if the head_pipes are different ( ex. in odm 2:1 when we have
+	 *  a left and right pipe ).
+	 *
+	 * It also checks the old context to see if:
+	 *
+	 * 1. a pipe has already been allocated for the head pipe.  If so, it will
+	 *  try to select that pipe as the idle pipe if it is available in the current
+	 *  context.
+	 * 2. if the head_pipe is on the left, it will check if the right pipe has
+	 *  a pipe already allocated.  If so, it will not use that pipe if it is
+	 *  selected as the idle pipe.
+	 */
+	struct pipe_ctx *(*acquire_idle_pipe_for_head_pipe_in_layer)(
+			struct dc_state *context,
+			const struct resource_pool *pool,
+			struct dc_stream_state *stream,
+			struct pipe_ctx *head_pipe);
 
 	enum dc_status (*validate_plane)(const struct dc_plane_state *plane_state, struct dc_caps *caps);
 
@@ -195,6 +232,19 @@ struct resource_funcs {
 	enum dc_status (*add_dsc_to_stream_resource)(
 			struct dc *dc, struct dc_state *state,
 			struct dc_stream_state *stream);
+
+	void (*add_phantom_pipes)(
+            struct dc *dc,
+            struct dc_state *context,
+            display_e2e_pipe_params_st *pipes,
+			unsigned int pipe_cnt,
+            unsigned int index);
+
+	bool (*remove_phantom_pipes)(struct dc *dc, struct dc_state *context, bool fast_update);
+	void (*retain_phantom_pipes)(struct dc *dc, struct dc_state *context);
+	void (*get_panel_config_defaults)(struct dc_panel_config *panel_config);
+	void (*save_mall_state)(struct dc *dc, struct dc_state *context, struct mall_temp_config *temp_config);
+	void (*restore_mall_state)(struct dc *dc, struct dc_state *context, struct mall_temp_config *temp_config);
 };
 
 struct audio_support{
@@ -333,6 +383,9 @@ struct link_resource {
 	struct hpo_dp_link_encoder *hpo_dp_link_enc;
 };
 
+struct link_config {
+	struct dc_link_settings dp_link_settings;
+};
 union pipe_update_flags {
 	struct {
 		uint32_t enable : 1;
@@ -359,12 +412,26 @@ struct pipe_ctx {
 	struct dc_stream_state *stream;
 
 	struct plane_resource plane_res;
+
+	/**
+	 * @stream_res: Reference to DCN resource components such OPP and DSC.
+	 */
 	struct stream_resource stream_res;
 	struct link_resource link_res;
 
 	struct clock_source *clock_source;
 
 	struct pll_settings pll_settings;
+
+	/**
+	 * @link_config:
+	 *
+	 * link config records software decision for what link config should be
+	 * enabled given current link capability and stream during hw resource
+	 * mapping. This is to decouple the dependency on link capability during
+	 * dc commit or update.
+	 */
+	struct link_config link_config;
 
 	uint8_t pipe_idx;
 	uint8_t pipe_idx_syncd;
@@ -387,7 +454,6 @@ struct pipe_ctx {
 	union pipe_update_flags update_flags;
 	struct dwbc *dwbc;
 	struct mcif_wb *mcif_wb;
-	bool vtp_locked;
 };
 
 /* Data used for dynamic link encoder assignment.
@@ -441,6 +507,8 @@ struct dcn_bw_output {
 	struct dcn_watermark_set watermarks;
 	struct dcn_bw_writeback bw_writeback;
 	int compbuf_size_kb;
+	unsigned int legacy_svp_drr_stream_index;
+	bool legacy_svp_drr_stream_index_valid;
 };
 
 union bw_output {
@@ -452,33 +520,62 @@ struct bw_context {
 	union bw_output bw;
 	struct display_mode_lib dml;
 };
+
 /**
- * struct dc_state - The full description of a state requested by a user
- *
- * @streams: Stream properties
- * @stream_status: The planes on a given stream
- * @res_ctx: Persistent state of resources
- * @bw_ctx: The output from bandwidth and watermark calculations and the DML
- * @pp_display_cfg: PowerPlay clocks and settings
- * @dcn_bw_vars: non-stack memory to support bandwidth calculations
- *
+ * struct dc_state - The full description of a state requested by users
  */
 struct dc_state {
+	/**
+	 * @streams: Stream state properties
+	 */
 	struct dc_stream_state *streams[MAX_PIPES];
+
+	/**
+	 * @stream_status: Planes status on a given stream
+	 */
 	struct dc_stream_status stream_status[MAX_PIPES];
+
+	/**
+	 * @stream_count: Total of streams in use
+	 */
 	uint8_t stream_count;
 	uint8_t stream_mask;
 
+	/**
+	 * @res_ctx: Persistent state of resources
+	 */
 	struct resource_context res_ctx;
 
+	/**
+	 * @bw_ctx: The output from bandwidth and watermark calculations and the DML
+	 *
+	 * Each context must have its own instance of VBA, and in order to
+	 * initialize and obtain IP and SOC, the base DML instance from DC is
+	 * initially copied into every context.
+	 */
 	struct bw_context bw_ctx;
 
-	/* Note: these are big structures, do *not* put on stack! */
+	/**
+	 * @pp_display_cfg: PowerPlay clocks and settings
+	 * Note: this is a big struct, do *not* put on stack!
+	 */
 	struct dm_pp_display_configuration pp_display_cfg;
+
+	/**
+	 * @dcn_bw_vars: non-stack memory to support bandwidth calculations
+	 * Note: this is a big struct, do *not* put on stack!
+	 */
 	struct dcn_bw_internal_vars dcn_bw_vars;
 
 	struct clk_mgr *clk_mgr;
 
+	/**
+	 * @refcount: refcount reference
+	 *
+	 * Notice that dc_state is used around the code to capture the current
+	 * context, so we need to pass it everywhere. That's why we want to use
+	 * kref in this struct.
+	 */
 	struct kref refcount;
 
 	struct {

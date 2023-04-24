@@ -183,7 +183,7 @@ config SPI_BCM63XX
 
 config SPI_BCM63XX_HSSPI
 	tristate "Broadcom BCM63XX HS SPI controller driver"
-	depends on BCM63XX || BMIPS_GENERIC || ARCH_BCM_63XX || COMPILE_TEST
+	depends on BCM63XX || BMIPS_GENERIC || ARCH_BCMBCA || COMPILE_TEST
 	help
 	  This enables support for the High Speed SPI controller present on
 	  newer Broadcom BCM63XX SoCs.
@@ -241,7 +241,7 @@ config SPI_CADENCE_QUADSPI
 
 config SPI_CADENCE_XSPI
 	tristate "Cadence XSPI controller"
-	depends on (OF || COMPILE_TEST) && HAS_IOMEM
+	depends on OF && HAS_IOMEM
 	depends on SPI_MEM
 	help
 	  Enable support for the Cadence XSPI Flash controller.
@@ -295,7 +295,6 @@ config SPI_DW_BT1
 	tristate "Baikal-T1 SPI driver for DW SPI core"
 	depends on MIPS_BAIKAL_T1 || COMPILE_TEST
 	select MULTIPLEXER
-	select MUX_MMIO
 	help
 	  Baikal-T1 SoC is equipped with three DW APB SSI-based MMIO SPI
 	  controllers. Two of them are pretty much normal: with IRQ, DMA,
@@ -370,6 +369,13 @@ config SPI_FSL_QUADSPI
 	  chipselects each.
 	  This controller does not support generic SPI messages. It only
 	  supports the high-level SPI memory interface.
+
+config SPI_GXP
+	tristate "GXP SPI driver"
+	depends on ARCH_HPE || COMPILE_TEST
+	help
+	  This enables support for the driver for GXP bus attached SPI
+	  controllers.
 
 config SPI_HISI_KUNPENG
 	tristate "HiSilicon SPI Controller for Kunpeng SoCs"
@@ -575,6 +581,24 @@ config SPI_MESON_SPIFC
 	  This enables master mode support for the SPIFC (SPI flash
 	  controller) available in Amlogic Meson SoCs.
 
+config SPI_MICROCHIP_CORE
+	tristate "Microchip FPGA SPI controllers"
+	depends on SPI_MASTER
+	help
+	  This enables the SPI driver for Microchip FPGA SPI controllers.
+	  Say Y or M here if you want to use the "hard" controllers on
+	  PolarFire SoC.
+	  If built as a module, it will be called spi-microchip-core.
+
+config SPI_MICROCHIP_CORE_QSPI
+	tristate "Microchip FPGA QSPI controllers"
+	depends on SPI_MASTER
+	help
+	  This enables the QSPI driver for Microchip FPGA QSPI controllers.
+	  Say Y or M here if you want to use the QSPI controllers on
+	  PolarFire SoC.
+	  If built as a module, it will be called spi-microchip-core-qspi.
+
 config SPI_MT65XX
 	tristate "MediaTek SPI controller"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
@@ -609,6 +633,17 @@ config SPI_MTK_SNFI
 	  Flash Interface found on MediaTek ARM SoCs. This controller
 	  is implemented as a SPI-MEM controller with pipelined ECC
 	  capcability.
+
+config SPI_WPCM_FIU
+	tristate "Nuvoton WPCM450 Flash Interface Unit"
+	depends on ARCH_NPCM || COMPILE_TEST
+	select REGMAP
+	help
+	  This enables support got the Flash Interface Unit SPI controller
+	  present in the Nuvoton WPCM450 SoC.
+
+	  This driver does not support generic SPI. The implementation only
+	  supports the spi-mem interface.
 
 config SPI_NPCM_FIU
 	tristate "Nuvoton NPCM FLASH Interface Unit"
@@ -684,6 +719,15 @@ config SPI_ORION
 	help
 	  This enables using the SPI master controller on the Orion
 	  and MVEBU chips.
+
+config SPI_PCI1XXXX
+	tristate "PCI1XXXX SPI Bus support"
+	depends on PCI
+	help
+	  Say "yes" to Enable the SPI Bus support for the PCI1xxxx card
+	  This is a PCI to SPI Bus driver
+	  This driver can be built as module. If so, the module will be
+	  called as spi-pci1xxxx.
 
 config SPI_PIC32
 	tristate "Microchip PIC32 series SPI"
@@ -871,6 +915,15 @@ config SPI_SLAVE_MT27XX
 	  If you want to use MediaTek(R) SPI slave interface,
 	  say Y or M here.If you are not sure, say N.
 	  SPI slave drivers for Mediatek MT27XX series ARM SoCs.
+
+config SPI_SN_F_OSPI
+	tristate "Socionext F_OSPI SPI flash controller"
+	depends on OF && HAS_IOMEM
+	depends on SPI_MEM
+	help
+	  This enables support for the Socionext F_OSPI controller
+	  for connecting an SPI Flash memory over up to 8-bit wide bus.
+	  It supports indirect access mode only.
 
 config SPI_SPRD
 	tristate "Spreadtrum SPI controller"

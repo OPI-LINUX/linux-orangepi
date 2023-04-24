@@ -99,6 +99,8 @@ source "drivers/media/Kconfig"
 
 source "drivers/video/Kconfig"
 
+source "drivers/accel/Kconfig"
+
 source "sound/Kconfig"
 
 source "drivers/hid/Kconfig"
@@ -182,8 +184,6 @@ source "drivers/memory/Kconfig"
 source "drivers/iio/Kconfig"
 
 source "drivers/ntb/Kconfig"
-
-source "drivers/vme/Kconfig"
 
 source "drivers/pwm/Kconfig"
 

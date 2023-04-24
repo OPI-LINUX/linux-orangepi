@@ -82,6 +82,7 @@
 #include <linux/mm.h>
 #include <linux/string.h>
 #include <crypto/hash.h>
+#include "messages.h"
 #include "ctree.h"
 #include "disk-io.h"
 #include "transaction.h"
@@ -92,6 +93,7 @@
 #include "check-integrity.h"
 #include "rcu-string.h"
 #include "compression.h"
+#include "accessors.h"
 
 #define BTRFSIC_BLOCK_HASHTABLE_SIZE 0x10000
 #define BTRFSIC_BLOCK_LINK_HASHTABLE_SIZE 0x10000
@@ -152,7 +154,7 @@ struct btrfsic_block {
 	struct btrfsic_block *next_in_same_bio;
 	void *orig_bio_private;
 	bio_end_io_t *orig_bio_end_io;
-	int submit_bio_bh_rw;
+	blk_opf_t submit_bio_bh_rw;
 	u64 flush_gen; /* only valid if !never_written */
 };
 
@@ -755,7 +757,7 @@ static int btrfsic_process_superblock_dev_mirror(
 			btrfs_info_in_rcu(fs_info,
 			"new initial S-block (bdev %p, %s) @%llu (%pg/%llu/%d)",
 				     superblock_bdev,
-				     rcu_str_deref(device->name), dev_bytenr,
+				     btrfs_dev_name(device), dev_bytenr,
 				     dev_state->bdev, dev_bytenr,
 				     superblock_mirror_num);
 		list_add(&superblock_tmp->all_blocks_node,
@@ -1681,7 +1683,7 @@ static void btrfsic_process_written_block(struct btrfsic_dev_state *dev_state,
 					  u64 dev_bytenr, char **mapped_datav,
 					  unsigned int num_pages,
 					  struct bio *bio, int *bio_is_patched,
-					  int submit_bio_bh_rw)
+					  blk_opf_t submit_bio_bh_rw)
 {
 	int is_metadata;
 	struct btrfsic_block *block;

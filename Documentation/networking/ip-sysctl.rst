@@ -202,6 +202,12 @@ neigh/default/unres_qlen - INTEGER
 
 	Default: 101
 
+neigh/default/interval_probe_time_ms - INTEGER
+	The probe interval for neighbor entries with NTF_MANAGED flag,
+	the min value is 1.
+
+	Default: 5000
+
 mtu_expires - INTEGER
 	Time, in seconds, that cached PMTU information is kept.
 
@@ -630,6 +636,16 @@ tcp_recovery - INTEGER
 
 	Default: 0x1
 
+tcp_reflect_tos - BOOLEAN
+	For listening sockets, reuse the DSCP value of the initial SYN message
+	for outgoing packets. This allows to have both directions of a TCP
+	stream to use the same DSCP value, assuming DSCP remains unchanged for
+	the lifetime of the connection.
+
+	This options affects both IPv4 and IPv6.
+
+	Default: 0 (disabled)
+
 tcp_reordering - INTEGER
 	Initial reordering level of packets in a TCP stream.
 	TCP stack can then dynamically adjust flow reordering level
@@ -1019,7 +1035,114 @@ tcp_limit_output_bytes - INTEGER
 tcp_challenge_ack_limit - INTEGER
 	Limits number of Challenge ACK sent per second, as recommended
 	in RFC 5961 (Improving TCP's Robustness to Blind In-Window Attacks)
-	Default: 1000
+	Note that this per netns rate limit can allow some side channel
+	attacks and probably should not be enabled.
+	TCP stack implements per TCP socket limits anyway.
+	Default: INT_MAX (unlimited)
+
+tcp_ehash_entries - INTEGER
+	Show the number of hash buckets for TCP sockets in the current
+	networking namespace.
+
+	A negative value means the networking namespace does not own its
+	hash buckets and shares the initial networking namespace's one.
+
+tcp_child_ehash_entries - INTEGER
+	Control the number of hash buckets for TCP sockets in the child
+	networking namespace, which must be set before clone() or unshare().
+
+	If the value is not 0, the kernel uses a value rounded up to 2^n
+	as the actual hash bucket size.  0 is a special value, meaning
+	the child networking namespace will share the initial networking
+	namespace's hash buckets.
+
+	Note that the child will use the global one in case the kernel
+	fails to allocate enough memory.  In addition, the global hash
+	buckets are spread over available NUMA nodes, but the allocation
+	of the child hash table depends on the current process's NUMA
+	policy, which could result in performance differences.
+
+	Note also that the default value of tcp_max_tw_buckets and
+	tcp_max_syn_backlog depend on the hash bucket size.
+
+	Possible values: 0, 2^n (n: 0 - 24 (16Mi))
+
+	Default: 0
+
+tcp_plb_enabled - BOOLEAN
+	If set and the underlying congestion control (e.g. DCTCP) supports
+	and enables PLB feature, TCP PLB (Protective Load Balancing) is
+	enabled. PLB is described in the following paper:
+	https://doi.org/10.1145/3544216.3544226. Based on PLB parameters,
+	upon sensing sustained congestion, TCP triggers a change in
+	flow label field for outgoing IPv6 packets. A change in flow label
+	field potentially changes the path of outgoing packets for switches
+	that use ECMP/WCMP for routing.
+
+	PLB changes socket txhash which results in a change in IPv6 Flow Label
+	field, and currently no-op for IPv4 headers. It is possible
+	to apply PLB for IPv4 with other network header fields (e.g. TCP
+	or IPv4 options) or using encapsulation where outer header is used
+	by switches to determine next hop. In either case, further host
+	and switch side changes will be needed.
+
+	When set, PLB assumes that congestion signal (e.g. ECN) is made
+	available and used by congestion control module to estimate a
+	congestion measure (e.g. ce_ratio). PLB needs a congestion measure to
+	make repathing decisions.
+
+	Default: FALSE
+
+tcp_plb_idle_rehash_rounds - INTEGER
+	Number of consecutive congested rounds (RTT) seen after which
+	a rehash can be performed, given there are no packets in flight.
+	This is referred to as M in PLB paper:
+	https://doi.org/10.1145/3544216.3544226.
+
+	Possible Values: 0 - 31
+
+	Default: 3
+
+tcp_plb_rehash_rounds - INTEGER
+	Number of consecutive congested rounds (RTT) seen after which
+	a forced rehash can be performed. Be careful when setting this
+	parameter, as a small value increases the risk of retransmissions.
+	This is referred to as N in PLB paper:
+	https://doi.org/10.1145/3544216.3544226.
+
+	Possible Values: 0 - 31
+
+	Default: 12
+
+tcp_plb_suspend_rto_sec - INTEGER
+	Time, in seconds, to suspend PLB in event of an RTO. In order to avoid
+	having PLB repath onto a connectivity "black hole", after an RTO a TCP
+	connection suspends PLB repathing for a random duration between 1x and
+	2x of this parameter. Randomness is added to avoid concurrent rehashing
+	of multiple TCP connections. This should be set corresponding to the
+	amount of time it takes to repair a failed link.
+
+	Possible Values: 0 - 255
+
+	Default: 60
+
+tcp_plb_cong_thresh - INTEGER
+	Fraction of packets marked with congestion over a round (RTT) to
+	tag that round as congested. This is referred to as K in the PLB paper:
+	https://doi.org/10.1145/3544216.3544226.
+
+	The 0-1 fraction range is mapped to 0-256 range to avoid floating
+	point operations. For example, 128 means that if at least 50% of
+	the packets in a round were marked as congested then the round
+	will be tagged as congested.
+
+	Setting threshold to 0 means that PLB repaths every RTT regardless
+	of congestion. This is not intended behavior for PLB and should be
+	used only for experimentation purpose.
+
+	Possible Values: 0 - 256
+
+	Default: 128
 
 UDP variables
 =============
@@ -1053,6 +1176,33 @@ udp_rmem_min - INTEGER
 
 udp_wmem_min - INTEGER
 	UDP does not have tx memory accounting and this tunable has no effect.
+
+udp_hash_entries - INTEGER
+	Show the number of hash buckets for UDP sockets in the current
+	networking namespace.
+
+	A negative value means the networking namespace does not own its
+	hash buckets and shares the initial networking namespace's one.
+
+udp_child_ehash_entries - INTEGER
+	Control the number of hash buckets for UDP sockets in the child
+	networking namespace, which must be set before clone() or unshare().
+
+	If the value is not 0, the kernel uses a value rounded up to 2^n
+	as the actual hash bucket size.  0 is a special value, meaning
+	the child networking namespace will share the initial networking
+	namespace's hash buckets.
+
+	Note that the child will use the global one in case the kernel
+	fails to allocate enough memory.  In addition, the global hash
+	buckets are spread over available NUMA nodes, but the allocation
+	of the child hash table depends on the current process's NUMA
+	policy, which could result in performance differences.
+
+	Possible values: 0, 2^n (n: 7 (128) - 16 (64K))
+
+	Default: 0
+
 
 RAW variables
 =============
@@ -1623,12 +1773,15 @@ arp_notify - BOOLEAN
 	     or hardware address changes.
 	 ==  ==========================================================
 
-arp_accept - BOOLEAN
-	Define behavior for gratuitous ARP frames who's IP is not
-	already present in the ARP table:
+arp_accept - INTEGER
+	Define behavior for accepting gratuitous ARP (garp) frames from devices
+	that are not already present in the ARP table:
 
 	- 0 - don't create new entries in the ARP table
 	- 1 - create new entries in the ARP table
+	- 2 - create new entries only if the source IP address is in the same
+	  subnet as an address configured on the interface that received the
+	  garp message.
 
 	Both replies and requests type gratuitous arp will trigger the
 	ARP table to be updated, if this setting is on.
@@ -2470,27 +2623,36 @@ drop_unsolicited_na - BOOLEAN
 
 	By default this is turned off.
 
-accept_untracked_na - BOOLEAN
-	Add a new neighbour cache entry in STALE state for routers on receiving a
-	neighbour advertisement (either solicited or unsolicited) with target
-	link-layer address option specified if no neighbour entry is already
-	present for the advertised IPv6 address. Without this knob, NAs received
-	for untracked addresses (absent in neighbour cache) are silently ignored.
+accept_untracked_na - INTEGER
+	Define behavior for accepting neighbor advertisements from devices that
+	are absent in the neighbor cache:
 
-	This is as per router-side behaviour documented in RFC9131.
+	- 0 - (default) Do not accept unsolicited and untracked neighbor
+	  advertisements.
 
-	This has lower precedence than drop_unsolicited_na.
+	- 1 - Add a new neighbor cache entry in STALE state for routers on
+	  receiving a neighbor advertisement (either solicited or unsolicited)
+	  with target link-layer address option specified if no neighbor entry
+	  is already present for the advertised IPv6 address. Without this knob,
+	  NAs received for untracked addresses (absent in neighbor cache) are
+	  silently ignored.
 
-	This will optimize the return path for the initial off-link communication
-	that is initiated by a directly connected host, by ensuring that
-	the first-hop router which turns on this setting doesn't have to
-	buffer the initial return packets to do neighbour-solicitation.
-	The prerequisite is that the host is configured to send
-	unsolicited neighbour advertisements on interface bringup.
-	This setting should be used in conjunction with the ndisc_notify setting
-	on the host to satisfy this prerequisite.
+	  This is as per router-side behavior documented in RFC9131.
 
-	By default this is turned off.
+	  This has lower precedence than drop_unsolicited_na.
+
+	  This will optimize the return path for the initial off-link
+	  communication that is initiated by a directly connected host, by
+	  ensuring that the first-hop router which turns on this setting doesn't
+	  have to buffer the initial return packets to do neighbor-solicitation.
+	  The prerequisite is that the host is configured to send unsolicited
+	  neighbor advertisements on interface bringup. This setting should be
+	  used in conjunction with the ndisc_notify setting on the host to
+	  satisfy this prerequisite.
+
+	- 2 - Extend option (1) to add a new neighbor cache entry only if the
+	  source IP address is in the same subnet as an address configured on
+	  the interface that received the neighbor advertisement.
 
 enhanced_dad - BOOLEAN
 	Include a nonce option in the IPv6 neighbor solicitation messages used for
@@ -2964,6 +3126,15 @@ ecn_enable - BOOLEAN
         0: Disable ecn.
 
         Default: 1
+
+l3mdev_accept - BOOLEAN
+	Enabling this option allows a "global" bound socket to work
+	across L3 master domains (e.g., VRFs) with packets capable of
+	being received regardless of the L3 domain in which they
+	originated. Only valid when the kernel was compiled with
+	CONFIG_NET_L3_MASTER_DEV.
+
+	Default: 1 (enabled)
 
 
 ``/proc/sys/net/core/*``

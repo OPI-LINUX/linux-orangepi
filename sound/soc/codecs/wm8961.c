@@ -895,7 +895,6 @@ static const struct snd_soc_component_driver soc_component_dev_wm8961 = {
 	.idle_bias_on		= 1,
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
-	.non_legacy_dai_naming	= 1,
 };
 
 static const struct regmap_config wm8961_regmap = {
@@ -972,9 +971,16 @@ static const struct i2c_device_id wm8961_i2c_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, wm8961_i2c_id);
 
+static const struct of_device_id wm8961_of_match[] __maybe_unused = {
+	{ .compatible = "wlf,wm8961", },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, wm8961_of_match);
+
 static struct i2c_driver wm8961_i2c_driver = {
 	.driver = {
 		.name = "wm8961",
+		.of_match_table = of_match_ptr(wm8961_of_match),
 	},
 	.probe_new = wm8961_i2c_probe,
 	.id_table = wm8961_i2c_id,

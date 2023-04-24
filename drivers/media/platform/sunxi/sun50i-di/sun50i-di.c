@@ -87,6 +87,9 @@ static void deinterlace_device_run(void *priv)
 	deinterlace_write(dev, DEINTERLACE_OUT_FLAG_ADDR, ctx->flag2_buf_dma);
 	deinterlace_write(dev, DEINTERLACE_FLAG_ADDRH, 0);
 	deinterlace_write(dev, DEINTERLACE_FLAG_PITCH, 0x200);
+	if (device_iommu_mapped(dev->dev))
+		deinterlace_set_bits(dev, DEINTERLACE_CTRL,
+				     DEINTERLACE_CTRL_IOMMU_EN);
 
 	width = ctx->src_fmt.width;
 	height = ctx->src_fmt.height;

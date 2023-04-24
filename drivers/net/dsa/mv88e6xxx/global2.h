@@ -298,7 +298,7 @@
 #define MV88E6352_G2_SCRATCH_CONFIG_DATA1	0x71
 #define MV88E6352_G2_SCRATCH_CONFIG_DATA1_NO_CPU	BIT(2)
 #define MV88E6352_G2_SCRATCH_CONFIG_DATA2	0x72
-#define MV88E6352_G2_SCRATCH_CONFIG_DATA2_P0_MODE_MASK	0x3
+#define MV88E6352_G2_SCRATCH_CONFIG_DATA2_P0_MODE_MASK	0xf
 #define MV88E6352_G2_SCRATCH_CONFIG_DATA3	0x73
 #define MV88E6352_G2_SCRATCH_CONFIG_DATA3_S_SEL		BIT(1)
 
@@ -363,6 +363,7 @@ int mv88e6xxx_g2_device_mapping_write(struct mv88e6xxx_chip *chip, int target,
 extern const struct mv88e6xxx_irq_ops mv88e6097_watchdog_ops;
 extern const struct mv88e6xxx_irq_ops mv88e6250_watchdog_ops;
 extern const struct mv88e6xxx_irq_ops mv88e6390_watchdog_ops;
+extern const struct mv88e6xxx_irq_ops mv88e6393x_watchdog_ops;
 
 extern const struct mv88e6xxx_avb_ops mv88e6165_avb_ops;
 extern const struct mv88e6xxx_avb_ops mv88e6352_avb_ops;

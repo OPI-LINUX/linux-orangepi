@@ -3,11 +3,13 @@
 #include "qcom-pm8841.dtsi"
 #include "qcom-pm8941.dtsi"
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 
 / {
 	model = "Sony Xperia Z2 Tablet";
-	compatible = "sony,xperia-castor", "qcom,msm8974";
+	compatible = "sony,xperia-castor", "qcom,msm8974pro", "qcom,msm8974";
+	chassis-type = "tablet";
 
 	aliases {
 		serial0 = &blsp1_uart2;
@@ -24,28 +26,28 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&gpio_keys_pin_a>;
 
-		volume-down {
+		key-volume-down {
 			label = "volume_down";
 			gpios = <&pm8941_gpios 2 GPIO_ACTIVE_LOW>;
 			linux,input-type = <1>;
 			linux,code = <KEY_VOLUMEDOWN>;
 		};
 
-		camera-snapshot {
+		key-camera-snapshot {
 			label = "camera_snapshot";
 			gpios = <&pm8941_gpios 3 GPIO_ACTIVE_LOW>;
 			linux,input-type = <1>;
 			linux,code = <KEY_CAMERA>;
 		};
 
-		camera-focus {
+		key-camera-focus {
 			label = "camera_focus";
 			gpios = <&pm8941_gpios 4 GPIO_ACTIVE_LOW>;
 			linux,input-type = <1>;
 			linux,code = <KEY_CAMERA_FOCUS>;
 		};
 
-		volume-up {
+		key-volume-up {
 			label = "volume_up";
 			gpios = <&pm8941_gpios 5 GPIO_ACTIVE_LOW>;
 			linux,input-type = <1>;
@@ -211,31 +213,6 @@
 	};
 };
 
-&otg {
-	status = "okay";
-
-	phys = <&usb_hs1_phy>;
-	phy-select = <&tcsr 0xb000 0>;
-	extcon = <&smbb>, <&usb_id>;
-	vbus-supply = <&chg_otg>;
-
-	hnp-disable;
-	srp-disable;
-	adp-disable;
-
-	ulpi {
-		phy@a {
-			status = "okay";
-
-			v1p8-supply = <&pm8941_l6>;
-			v3p3-supply = <&pm8941_l24>;
-
-			extcon = <&smbb>;
-			qcom,init-seq = /bits/ 8 <0x1 0x64>;
-		};
-	};
-};
-
 &pm8941_coincell {
 	status = "okay";
 
@@ -244,7 +221,7 @@
 };
 
 &pm8941_gpios {
-	gpio_keys_pin_a: gpio-keys-active {
+	gpio_keys_pin_a: gpio-keys-active-state {
 		pins = "gpio2", "gpio5";
 		function = "normal";
 
@@ -252,7 +229,7 @@
 		power-source = <PM8941_GPIO_S3>;
 	};
 
-	bt_reg_on_pin: bt-reg-on {
+	bt_reg_on_pin: bt-reg-on-state {
 		pins = "gpio16";
 		function = "normal";
 
@@ -260,7 +237,7 @@
 		power-source = <PM8941_GPIO_S3>;
 	};
 
-	wlan_sleep_clk_pin: wl-sleep-clk {
+	wlan_sleep_clk_pin: wl-sleep-clk-state {
 		pins = "gpio17";
 		function = "func2";
 
@@ -268,7 +245,7 @@
 		power-source = <PM8941_GPIO_S3>;
 	};
 
-	wlan_regulator_pin: wl-reg-active {
+	wlan_regulator_pin: wl-reg-active-state {
 		pins = "gpio18";
 		function = "normal";
 
@@ -276,7 +253,7 @@
 		power-source = <PM8941_GPIO_S3>;
 	};
 
-	lcd_dcdc_en_pin_a: lcd-dcdc-en-active {
+	lcd_dcdc_en_pin_a: lcd-dcdc-en-active-state {
 		pins = "gpio20";
 		function = "normal";
 
@@ -288,8 +265,37 @@
 
 };
 
+&pm8941_lpg {
+	status = "okay";
+
+	qcom,power-source = <1>;
+
+	multi-led {
+		color = <LED_COLOR_ID_RGB>;
+		function = LED_FUNCTION_STATUS;
+
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		led@5 {
+			reg = <5>;
+			color = <LED_COLOR_ID_BLUE>;
+		};
+
+		led@6 {
+			reg = <6>;
+			color = <LED_COLOR_ID_GREEN>;
+		};
+
+		led@7 {
+			reg = <7>;
+			color = <LED_COLOR_ID_RED>;
+		};
+	};
+};
+
 &rpm_requests {
-	pm8941-regulators {
+	regulators-0 {
 		compatible = "qcom,rpm-pm8941-regulators";
 
 		vdd_l1_l3-supply = <&pm8941_s1>;
@@ -518,41 +524,42 @@
 };
 
 &tlmm {
-	lcd_backlight_en_pin_a: lcd-backlight-vddio {
+	lcd_backlight_en_pin_a: lcd-backlight-vddio-state {
 		pins = "gpio69";
+		function = "gpio";
 		drive-strength = <10>;
 		output-low;
 		bias-disable;
 	};
 
-	sdc1_on: sdc1-on {
-		clk {
+	sdc1_on: sdc1-on-state {
+		clk-pins {
 			pins = "sdc1_clk";
 			drive-strength = <16>;
 			bias-disable;
 		};
 
-		cmd-data {
+		cmd-data-pins {
 			pins = "sdc1_cmd", "sdc1_data";
 			drive-strength = <10>;
 			bias-pull-up;
 		};
 	};
 
-	sdc2_on: sdc2-on {
-		clk {
+	sdc2_on: sdc2-on-state {
+		clk-pins {
 			pins = "sdc2_clk";
 			drive-strength = <6>;
 			bias-disable;
 		};
 
-		cmd-data {
+		cmd-data-pins {
 			pins = "sdc2_cmd", "sdc2_data";
 			drive-strength = <6>;
 			bias-pull-up;
 		};
 
-		cd {
+		cd-pins {
 			pins = "gpio62";
 			function = "gpio";
 			drive-strength = <2>;
@@ -560,22 +567,22 @@
 		};
 	};
 
-	sdc3_on: sdc3-on {
-		clk {
+	sdc3_on: sdc3-on-state {
+		clk-pins {
 			pins = "gpio40";
 			function = "sdc3";
 			drive-strength = <10>;
 			bias-disable;
 		};
 
-		cmd {
+		cmd-pins {
 			pins = "gpio39";
 			function = "sdc3";
 			drive-strength = <10>;
 			bias-pull-up;
 		};
 
-		data {
+		data-pins {
 			pins = "gpio35", "gpio36", "gpio37", "gpio38";
 			function = "sdc3";
 			drive-strength = <10>;
@@ -583,7 +590,7 @@
 		};
 	};
 
-	ts_int_pin: ts-int-pin {
+	ts_int_pin: ts-int-pin-state {
 		pins = "gpio86";
 		function = "gpio";
 		drive-strength = <2>;
@@ -591,7 +598,7 @@
 		input-enable;
 	};
 
-	bt_host_wake_pin: bt-host-wake {
+	bt_host_wake_pin: bt-host-wake-state {
 		pins = "gpio95";
 		function = "gpio";
 		drive-strength = <2>;
@@ -599,10 +606,33 @@
 		output-low;
 	};
 
-	bt_dev_wake_pin: bt-dev-wake {
+	bt_dev_wake_pin: bt-dev-wake-state {
 		pins = "gpio96";
 		function = "gpio";
 		drive-strength = <2>;
 		bias-disable;
 	};
+};
+
+&usb {
+	status = "okay";
+
+	phys = <&usb_hs1_phy>;
+	phy-select = <&tcsr 0xb000 0>;
+	extcon = <&smbb>, <&usb_id>;
+	vbus-supply = <&chg_otg>;
+
+	hnp-disable;
+	srp-disable;
+	adp-disable;
+};
+
+&usb_hs1_phy {
+	status = "okay";
+
+	v1p8-supply = <&pm8941_l6>;
+	v3p3-supply = <&pm8941_l24>;
+
+	extcon = <&smbb>;
+	qcom,init-seq = /bits/ 8 <0x1 0x64>;
 };

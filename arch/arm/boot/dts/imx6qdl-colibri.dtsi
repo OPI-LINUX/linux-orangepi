@@ -6,6 +6,7 @@
  */
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pwm/pwm.h>
 
 / {
 	model = "Toradex Colibri iMX6DL/S Module";
@@ -13,14 +14,21 @@
 
 	backlight: backlight {
 		compatible = "pwm-backlight";
-		brightness-levels = <0 127 191 223 239 247 251 255>;
-		default-brightness-level = <1>;
+		brightness-levels = <0 45 63 88 119 158 203 255>;
+		default-brightness-level = <4>;
 		enable-gpios = <&gpio3 26 GPIO_ACTIVE_HIGH>; /* Colibri BL_ON */
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_gpio_bl_on>;
 		power-supply = <&reg_module_3v3>;
-		pwms = <&pwm3 0 5000000>;
+		pwms = <&pwm3 0 5000000 PWM_POLARITY_INVERTED>;
 		status = "disabled";
+	};
+
+	extcon_usbc_det: usbc-det {
+		compatible = "linux,extcon-usb-gpio";
+		id-gpio = <&gpio7 12 GPIO_ACTIVE_HIGH>; /* SODIMM 137 / USBC_DET */
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_usbc_det>;
 	};
 
 	gpio-keys {
@@ -104,7 +112,7 @@
 
 	reg_usb_host_vbus: regulator-usb-host-vbus {
 		compatible = "regulator-fixed";
-		gpio = <&gpio3 31 GPIO_ACTIVE_HIGH>; /* USBH_PEN */
+		gpio = <&gpio3 31 GPIO_ACTIVE_LOW>; /* SODIMM 129 / USBH_PEN */
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_regulator_usbh_pwr>;
 		regulator-max-microvolt = <5000000>;
@@ -520,6 +528,8 @@
 		compatible = "fsl,sgtl5000";
 		clocks = <&clks IMX6QDL_CLK_CKO>;
 		lrclk-strength = <3>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_sgtl5000>;
 		reg = <0x0a>;
 		#sound-dai-cells = <0>;
 		VDDA-supply = <&reg_module_3v3_audio>;
@@ -618,7 +628,6 @@
 
 /* Colibri PWM<A> */
 &pwm3 {
-	#pwm-cells = <2>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pwm3>;
 	status = "disabled";
@@ -668,9 +677,16 @@
 	status = "disabled";
 };
 
+/* Colibri USBH */
+&usbh1 {
+	vbus-supply = <&reg_usb_host_vbus>;
+};
+
+/* Colibri USBC */
 &usbotg {
 	disable-over-current;
-	dr_mode = "peripheral";
+	dr_mode = "otg";
+	extcon = <0>, <&extcon_usbc_det>;
 	status = "disabled";
 };
 
@@ -739,8 +755,6 @@
 
 	pinctrl_audmux: audmuxgrp {
 		fsl,pins = <
-			/* SGTL5000 sys_mclk */
-			MX6QDL_PAD_GPIO_0__CCM_CLKO1	0x000b0
 			MX6QDL_PAD_KEY_COL0__AUD5_TXC	0x130b0
 			MX6QDL_PAD_KEY_ROW0__AUD5_TXD	0x130b0
 			MX6QDL_PAD_KEY_COL1__AUD5_TXFS	0x130b0
@@ -986,8 +1000,15 @@
 
 	pinctrl_regulator_usbh_pwr: gpioregusbhpwrgrp {
 		fsl,pins = <
-			/* USBH_EN */
+			/* SODIMM 129 / USBH_PEN */
 			MX6QDL_PAD_EIM_D31__GPIO3_IO31	0x0f058
+		>;
+	};
+
+	pinctrl_sgtl5000: sgtl5000grp {
+		fsl,pins = <
+			/* SGTL5000 sys_mclk */
+			MX6QDL_PAD_GPIO_0__CCM_CLKO1	0x000b0
 		>;
 	};
 
@@ -1048,7 +1069,7 @@
 
 	pinctrl_usbc_det: usbcdetgrp {
 		fsl,pins = <
-			/* USBC_DET */
+			/* SODIMM 137 / USBC_DET */
 			MX6QDL_PAD_GPIO_17__GPIO7_IO12		0x1b0b0
 			/* USBC_DET_OVERWRITE */
 			MX6QDL_PAD_RGMII_RXC__GPIO6_IO30	0x0f058

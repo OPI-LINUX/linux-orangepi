@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
-// Copyright (c) 2018, Linaro Limited
+/*
+ * Copyright (c) 2018, Linaro Limited
+ */
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/clock/qcom,gcc-qcs404.h>
@@ -295,12 +297,6 @@
 		hwlocks = <&tcsr_mutex 3>;
 	};
 
-	tcsr_mutex: hwlock {
-		compatible = "qcom,tcsr-mutex";
-		syscon = <&tcsr_mutex_regs 0 0x1000>;
-		#hwlock-cells = <1>;
-	};
-
 	soc: soc@0 {
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -366,7 +362,7 @@
 		};
 
 		qfprom: qfprom@a4000 {
-			compatible = "qcom,qfprom";
+			compatible = "qcom,qcs404-qfprom", "qcom,qfprom";
 			reg = <0x000a4000 0x1000>;
 			#address-cells = <1>;
 			#size-cells = <1>;
@@ -548,7 +544,7 @@
 				compatible = "snps,dwc3";
 				reg = <0x07580000 0xcd00>;
 				interrupts = <GIC_SPI 26 IRQ_TYPE_LEVEL_HIGH>;
-				phys = <&usb2_phy_sec>, <&usb3_phy>;
+				phys = <&usb2_phy_prim>, <&usb3_phy>;
 				phy-names = "usb2-phy", "usb3-phy";
 				snps,has-lpm-erratum;
 				snps,hird-threshold = /bits/ 8 <0x10>;
@@ -577,7 +573,7 @@
 				compatible = "snps,dwc3";
 				reg = <0x078c0000 0xcc00>;
 				interrupts = <GIC_SPI 44 IRQ_TYPE_LEVEL_HIGH>;
-				phys = <&usb2_phy_prim>;
+				phys = <&usb2_phy_sec>;
 				phy-names = "usb2-phy";
 				snps,has-lpm-erratum;
 				snps,hird-threshold = /bits/ 8 <0x10>;
@@ -599,101 +595,130 @@
 			interrupt-controller;
 			#interrupt-cells = <2>;
 
-			blsp1_i2c0_default: blsp1-i2c0-default {
+			blsp1_i2c0_default: blsp1-i2c0-default-state {
 				pins = "gpio32", "gpio33";
 				function = "blsp_i2c0";
 			};
 
-			blsp1_i2c1_default: blsp1-i2c1-default {
+			blsp1_i2c1_default: blsp1-i2c1-default-state {
 				pins = "gpio24", "gpio25";
 				function = "blsp_i2c1";
 			};
 
-			blsp1_i2c2_default: blsp1-i2c2-default {
-				sda {
+			blsp1_i2c2_default: blsp1-i2c2-default-state {
+				sda-pins {
 					pins = "gpio19";
 					function = "blsp_i2c_sda_a2";
 				};
 
-				scl {
+				scl-pins {
 					pins = "gpio20";
 					function = "blsp_i2c_scl_a2";
 				};
 			};
 
-			blsp1_i2c3_default: blsp1-i2c3-default {
+			blsp1_i2c3_default: blsp1-i2c3-default-state {
 				pins = "gpio84", "gpio85";
 				function = "blsp_i2c3";
 			};
 
-			blsp1_i2c4_default: blsp1-i2c4-default {
+			blsp1_i2c4_default: blsp1-i2c4-default-state {
 				pins = "gpio117", "gpio118";
 				function = "blsp_i2c4";
 			};
 
-			blsp1_uart0_default: blsp1-uart0-default {
+			blsp1_uart0_default: blsp1-uart0-default-state {
 				pins = "gpio30", "gpio31", "gpio32", "gpio33";
 				function = "blsp_uart0";
 			};
 
-			blsp1_uart1_default: blsp1-uart1-default {
+			blsp1_uart1_default: blsp1-uart1-default-state {
 				pins = "gpio22", "gpio23";
 				function = "blsp_uart1";
 			};
 
-			blsp1_uart2_default: blsp1-uart2-default {
-				rx {
+			blsp1_uart2_default: blsp1-uart2-default-state {
+				rx-pins {
 					pins = "gpio18";
 					function = "blsp_uart_rx_a2";
 				};
 
-				tx {
+				tx-pins {
 					pins = "gpio17";
 					function = "blsp_uart_tx_a2";
 				};
 			};
 
-			blsp1_uart3_default: blsp1-uart3-default {
-				pins = "gpio82", "gpio83", "gpio84", "gpio85";
-				function = "blsp_uart3";
+			blsp1_uart3_default: blsp1-uart3-default-state {
+				cts-pins {
+					pins = "gpio84";
+					function = "blsp_uart3";
+				};
+
+				rts-tx-pins {
+					pins = "gpio85", "gpio82";
+					function = "blsp_uart3";
+				};
+
+				rx-pins {
+					pins = "gpio83";
+					function = "blsp_uart3";
+				};
 			};
 
-			blsp2_i2c0_default: blsp2-i2c0-default {
+			blsp2_i2c0_default: blsp2-i2c0-default-state {
 				pins = "gpio28", "gpio29";
 				function = "blsp_i2c5";
 			};
 
-			blsp1_spi0_default: blsp1-spi0-default {
+			blsp1_spi0_default: blsp1-spi0-default-state {
 				pins = "gpio30", "gpio31", "gpio32", "gpio33";
 				function = "blsp_spi0";
 			};
 
-			blsp1_spi1_default: blsp1-spi1-default {
-				pins = "gpio22", "gpio23", "gpio24", "gpio25";
-				function = "blsp_spi1";
+			blsp1_spi1_default: blsp1-spi1-default-state {
+				mosi-pins {
+					pins = "gpio22";
+					function = "blsp_spi_mosi_a1";
+				};
+
+				miso-pins {
+					pins = "gpio23";
+					function = "blsp_spi_miso_a1";
+				};
+
+				cs-n-pins {
+					pins = "gpio24";
+					function = "blsp_spi_cs_n_a1";
+				};
+
+				clk-pins {
+					pins = "gpio25";
+					function = "blsp_spi_clk_a1";
+				};
 			};
 
-			blsp1_spi2_default: blsp1-spi2-default {
+			blsp1_spi2_default: blsp1-spi2-default-state {
 				pins = "gpio17", "gpio18", "gpio19", "gpio20";
 				function = "blsp_spi2";
 			};
 
-			blsp1_spi3_default: blsp1-spi3-default {
+			blsp1_spi3_default: blsp1-spi3-default-state {
 				pins = "gpio82", "gpio83", "gpio84", "gpio85";
 				function = "blsp_spi3";
 			};
 
-			blsp1_spi4_default: blsp1-spi4-default {
+			blsp1_spi4_default: blsp1-spi4-default-state {
 				pins = "gpio37", "gpio38", "gpio117", "gpio118";
 				function = "blsp_spi4";
 			};
 
-			blsp2_spi0_default: blsp2-spi0-default {
+			blsp2_spi0_default: blsp2-spi0-default-state {
 				pins = "gpio26", "gpio27", "gpio28", "gpio29";
 				function = "blsp_spi5";
 			};
 
-			blsp2_uart0_default: blsp2-uart0-default {
+			blsp2_uart0_default: blsp2-uart0-default-state {
 				pins = "gpio26", "gpio27", "gpio28", "gpio29";
 				function = "blsp_uart5";
 			};
@@ -709,13 +734,14 @@
 			assigned-clock-rates = <19200000>;
 		};
 
-		tcsr_mutex_regs: syscon@1905000 {
-			compatible = "syscon";
+		tcsr_mutex: hwlock@1905000 {
+			compatible = "qcom,tcsr-mutex";
 			reg = <0x01905000 0x20000>;
+			#hwlock-cells = <1>;
 		};
 
 		tcsr: syscon@1937000 {
-			compatible = "syscon";
+			compatible = "qcom,qcs404-tcsr", "syscon";
 			reg = <0x01937000 0x25000>;
 		};
 
@@ -780,7 +806,7 @@
 
 			clocks = <&gcc GCC_PCIE_0_PIPE_CLK>;
 			resets = <&gcc GCC_PCIEPHY_0_PHY_BCR>,
-				 <&gcc 21>;
+				 <&gcc GCC_PCIE_0_PIPE_ARES>;
 			reset-names = "phy", "pipe";
 
 			clock-output-names = "pcie_0_pipe_clk";
@@ -789,7 +815,7 @@
 			status = "disabled";
 		};
 
-		sdcc1: sdcc@7804000 {
+		sdcc1: mmc@7804000 {
 			compatible = "qcom,qcs404-sdhci", "qcom,sdhci-msm-v5";
 			reg = <0x07804000 0x1000>, <0x7805000 0x1000>;
 			reg-names = "hc", "cqhci";
@@ -798,10 +824,10 @@
 				     <GIC_SPI 138 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "hc_irq", "pwr_irq";
 
-			clocks = <&gcc GCC_SDCC1_APPS_CLK>,
-				 <&gcc GCC_SDCC1_AHB_CLK>,
+			clocks = <&gcc GCC_SDCC1_AHB_CLK>,
+				 <&gcc GCC_SDCC1_APPS_CLK>,
 				 <&xo_board>;
-			clock-names = "core", "iface", "xo";
+			clock-names = "iface", "core", "xo";
 
 			status = "disabled";
 		};
@@ -1102,8 +1128,8 @@
 			status = "disabled";
 		};
 
-		imem@8600000 {
-			compatible = "simple-mfd";
+		sram@8600000 {
+			compatible = "qcom,qcs404-imem", "syscon", "simple-mfd";
 			reg = <0x08600000 0x1000>;
 
 			#address-cells = <1>;
@@ -1280,7 +1306,7 @@
 		};
 
 		pcie: pci@10000000 {
-			compatible = "qcom,pcie-qcs404", "snps,dw-pcie";
+			compatible = "qcom,pcie-qcs404";
 			reg =  <0x10000000 0xf1d>,
 			       <0x10000f20 0xa8>,
 			       <0x07780000 0x2000>,
@@ -1310,12 +1336,12 @@
 				 <&gcc GCC_PCIE_0_SLV_AXI_CLK>;
 			clock-names = "iface", "aux", "master_bus", "slave_bus";
 
-			resets = <&gcc 18>,
-				 <&gcc 17>,
-				 <&gcc 15>,
-				 <&gcc 19>,
+			resets = <&gcc GCC_PCIE_0_AXI_MASTER_ARES>,
+				 <&gcc GCC_PCIE_0_AXI_SLAVE_ARES>,
+				 <&gcc GCC_PCIE_0_AXI_MASTER_STICKY_ARES>,
+				 <&gcc GCC_PCIE_0_CORE_STICKY_ARES>,
 				 <&gcc GCC_PCIE_0_BCR>,
-				 <&gcc 16>;
+				 <&gcc GCC_PCIE_0_AHB_ARES>;
 			reset-names = "axi_m",
 				      "axi_s",
 				      "axi_m_sticky",

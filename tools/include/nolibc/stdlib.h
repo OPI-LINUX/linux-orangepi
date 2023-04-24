@@ -128,10 +128,9 @@ void *malloc(size_t len)
 static __attribute__((unused))
 void *calloc(size_t size, size_t nmemb)
 {
-	void *orig;
-	size_t res = 0;
+	size_t x = size * nmemb;
 
-	if (__builtin_expect(__builtin_mul_overflow(nmemb, size, &res), 0)) {
+	if (__builtin_expect(size && ((x / size) != nmemb), 0)) {
 		SET_ERRNO(ENOMEM);
 		return NULL;
 	}
@@ -140,7 +139,7 @@ void *calloc(size_t size, size_t nmemb)
 	 * No need to zero the heap, the MAP_ANONYMOUS in malloc()
 	 * already does it.
 	 */
-	return malloc(res);
+	return malloc(x);
 }
 
 static __attribute__((unused))
@@ -419,5 +418,8 @@ char *u64toa(uint64_t in)
 	u64toa_r(in, itoa_buffer);
 	return itoa_buffer;
 }
+
+/* make sure to include all global symbols */
+#include "nolibc.h"
 
 #endif /* _NOLIBC_STDLIB_H */

@@ -15,9 +15,9 @@
 
 #include "bmi160.h"
 
-static int bmi160_i2c_probe(struct i2c_client *client,
-			    const struct i2c_device_id *id)
+static int bmi160_i2c_probe(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	struct regmap *regmap;
 	const char *name;
 
@@ -60,7 +60,7 @@ static struct i2c_driver bmi160_i2c_driver = {
 		.acpi_match_table	= bmi160_acpi_match,
 		.of_match_table		= bmi160_of_match,
 	},
-	.probe		= bmi160_i2c_probe,
+	.probe_new	= bmi160_i2c_probe,
 	.id_table	= bmi160_i2c_id,
 };
 module_i2c_driver(bmi160_i2c_driver);
@@ -68,3 +68,4 @@ module_i2c_driver(bmi160_i2c_driver);
 MODULE_AUTHOR("Daniel Baluta <daniel.baluta@intel.com>");
 MODULE_DESCRIPTION("BMI160 I2C driver");
 MODULE_LICENSE("GPL v2");
+MODULE_IMPORT_NS(IIO_BMI160);
