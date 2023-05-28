@@ -72,8 +72,8 @@ static struct sunxi_sram_desc sun4i_a10_sram_c1 = {
 
 static struct sunxi_sram_desc sun50i_h616_sram_c1 = {
 	.data	= SUNXI_SRAM_DATA("C1", 0x0, 0x0, 31,
-				  SUNXI_SRAM_MAP(0x7fffff00, 1, "cpu"),
-				  SUNXI_SRAM_MAP(0, 0, "ve")),
+				  SUNXI_SRAM_MAP(0x7fffffff, 0, "cpu"),
+				  SUNXI_SRAM_MAP(0, 1, "ve")),
 };
 
 static struct sunxi_sram_desc sun4i_a10_sram_d = {
@@ -130,6 +130,9 @@ static int sunxi_sram_show(struct seq_file *s, void *data)
 	seq_puts(s, "--------------------\n\n");
 
 	for_each_child_of_node(sram_dev->of_node, sram_node) {
+		if (!of_device_is_compatible(sram_node, "mmio-sram"))
+			continue;
+
 		sram_addr_p = of_get_address(sram_node, 0, NULL, NULL);
 
 		seq_printf(s, "sram@%08x\n",

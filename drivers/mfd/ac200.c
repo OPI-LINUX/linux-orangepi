@@ -58,8 +58,7 @@ static struct mfd_cell ac200_cells[] = {
 	},
 };
 
-static int ac200_i2c_probe(struct i2c_client *i2c,
-			   const struct i2c_device_id *id)
+static int ac200_i2c_probe(struct i2c_client *i2c)
 {
 	struct device *dev = &i2c->dev;
 	struct ac200_dev *ac200;
@@ -111,15 +110,13 @@ err:
 	return ret;
 }
 
-static void ac200_i2c_remove(struct i2c_client *i2c)
+void ac200_i2c_remove(struct i2c_client *i2c)
 {
 	struct ac200_dev *ac200 = i2c_get_clientdata(i2c);
 
 	regmap_write(ac200->regmap, AC200_SYS_CONTROL, 0);
 
 	clk_disable_unprepare(ac200->clk);
-
-	//return 0;
 }
 
 static const struct i2c_device_id ac200_ids[] = {
@@ -139,7 +136,7 @@ static struct i2c_driver ac200_i2c_driver = {
 		.name	= "ac200",
 		.of_match_table	= of_match_ptr(ac200_of_match),
 	},
-	.probe	= ac200_i2c_probe,
+	.probe_new = ac200_i2c_probe,
 	.remove = ac200_i2c_remove,
 	.id_table = ac200_ids,
 };

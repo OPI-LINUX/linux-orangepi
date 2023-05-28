@@ -698,7 +698,7 @@ static void populate_subvp_cmd_pipe_info(struct dc *dc,
  *
  * @dc: [in] current dc state
  * @context: [in] new dc state
- * @cmd: [in] DMUB cmd to be populated with SubVP info
+ * @enable: [in] if true enables the pipes population
  *
  * This function loops through each pipe and populates the DMUB SubVP CMD info
  * based on the pipe (e.g. SubVP, VBLANK).
@@ -750,7 +750,8 @@ void dc_dmub_setup_subvp_dmub_command(struct dc *dc,
 					!pipe->top_pipe && !pipe->prev_odm_pipe &&
 					pipe->stream->mall_stream_config.type == SUBVP_MAIN) {
 				populate_subvp_cmd_pipe_info(dc, context, &cmd, pipe, cmd_pipe_index++);
-			} else if (pipe->plane_state && pipe->stream->mall_stream_config.type == SUBVP_NONE) {
+			} else if (pipe->plane_state && pipe->stream->mall_stream_config.type == SUBVP_NONE &&
+				    !pipe->top_pipe && !pipe->prev_odm_pipe) {
 				// Don't need to check for ActiveDRAMClockChangeMargin < 0, not valid in cases where
 				// we run through DML without calculating "natural" P-state support
 				populate_subvp_cmd_vblank_pipe_info(dc, context, &cmd, pipe, cmd_pipe_index++);

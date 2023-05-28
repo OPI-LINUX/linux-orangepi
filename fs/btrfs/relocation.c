@@ -2825,7 +2825,7 @@ static noinline_for_stack int prealloc_file_extent_cluster(
 	 *
 	 * Here we have to manually invalidate the range (i_size, PAGE_END + 1).
 	 */
-	if (!IS_ALIGNED(i_size, PAGE_SIZE)) {
+	if (!PAGE_ALIGNED(i_size)) {
 		struct address_space *mapping = inode->vfs_inode.i_mapping;
 		struct btrfs_fs_info *fs_info = inode->root->fs_info;
 		const u32 sectorsize = fs_info->sectorsize;
@@ -3422,7 +3422,7 @@ int add_data_references(struct reloc_control *rc,
 	btrfs_release_path(path);
 
 	ctx.bytenr = extent_key->objectid;
-	ctx.ignore_extent_item_pos = true;
+	ctx.skip_inode_ref_list = true;
 	ctx.fs_info = rc->extent_root->fs_info;
 
 	ret = btrfs_find_all_leafs(&ctx);

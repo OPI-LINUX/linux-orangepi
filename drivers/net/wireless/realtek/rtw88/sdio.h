@@ -6,6 +6,8 @@
 #ifndef __REG_SDIO_H_
 #define __REG_SDIO_H_
 
+#include "main.h"
+
 /* I/O bus domain address mapping */
 #define SDIO_LOCAL_OFFSET			0x10250000
 #define WLAN_IOREG_OFFSET			0x10260000
@@ -105,19 +107,12 @@
 #define REG_SDIO_HPS_CLKR			(SDIO_LOCAL_OFFSET + 0x0084)
 /* SDIO HCI Suspend Control */
 #define REG_SDIO_HSUS_CTRL			(SDIO_LOCAL_OFFSET + 0x0086)
-#define BIT_HCI_SUS_REQ				BIT(0)
-#define BIT_HCI_RESUME_RDY			BIT(1)
 /* SDIO Host Extension Interrupt Mask Always */
 #define REG_SDIO_HIMR_ON			(SDIO_LOCAL_OFFSET + 0x0090)
 /* SDIO Host Extension Interrupt Status Always */
 #define REG_SDIO_HISR_ON			(SDIO_LOCAL_OFFSET + 0x0091)
 
 #define REG_SDIO_INDIRECT_REG_CFG		(SDIO_LOCAL_OFFSET + 0x0040)
-#define BIT_SDIO_INDIRECT_REG_CFG_WORD		BIT(16)
-#define BIT_SDIO_INDIRECT_REG_CFG_DWORD		BIT(17)
-#define BIT_SDIO_INDIRECT_REG_CFG_WRITE		BIT(18)
-#define BIT_SDIO_INDIRECT_REG_CFG_READ		BIT(19)
-#define BIT_SDIO_INDIRECT_REG_CFG_UNK20		BIT(20)
 #define REG_SDIO_INDIRECT_REG_DATA		(SDIO_LOCAL_OFFSET + 0x0044)
 
 /* Sdio Address for SDIO Local Reg, TRX FIFO, MAC Reg */
@@ -153,12 +148,14 @@ struct rtw_sdio {
 	u32 irq_mask;
 	u8 rx_addr;
 	bool sdio3_bus_mode;
+	bool is_powered_on;
 
 	void *irq_thread;
 
 	struct workqueue_struct *txwq;
-	struct rtw_sdio_work_data *tx_handler_data;
+
 	struct sk_buff_head tx_queue[RTK_MAX_TX_QUEUE_NUM];
+	struct rtw_sdio_work_data *tx_handler_data;
 };
 
 extern const struct dev_pm_ops rtw_sdio_pm_ops;

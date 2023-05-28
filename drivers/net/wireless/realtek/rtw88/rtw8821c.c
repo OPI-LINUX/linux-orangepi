@@ -26,16 +26,16 @@ static void rtw8821ce_efuse_parsing(struct rtw_efuse *efuse,
 	ether_addr_copy(efuse->addr, map->e.mac_addr);
 }
 
-static void rtw8821cu_efuse_parsing(struct rtw_efuse *efuse,
-				    struct rtw8821c_efuse *map)
-{
-	ether_addr_copy(efuse->addr, map->u.mac_addr);
-}
-
 static void rtw8821cs_efuse_parsing(struct rtw_efuse *efuse,
 				    struct rtw8821c_efuse *map)
 {
 	ether_addr_copy(efuse->addr, map->s.mac_addr);
+}
+
+static void rtw8821cu_efuse_parsing(struct rtw_efuse *efuse,
+				    struct rtw8821c_efuse *map)
+{
+	ether_addr_copy(efuse->addr, map->u.mac_addr);
 }
 
 enum rtw8821ce_rf_set {
@@ -53,7 +53,7 @@ static int rtw8821c_read_efuse(struct rtw_dev *rtwdev, u8 *log_map)
 
 	map = (struct rtw8821c_efuse *)log_map;
 
-	efuse->rfe_option = map->rfe_option;
+	efuse->rfe_option = map->rfe_option & 0x1f;
 	efuse->rf_board_option = map->rf_board_option;
 	efuse->crystal_cap = map->xtal_k;
 	efuse->pa_type_2g = map->pa_type;
@@ -80,11 +80,11 @@ static int rtw8821c_read_efuse(struct rtw_dev *rtwdev, u8 *log_map)
 	case RTW_HCI_TYPE_PCIE:
 		rtw8821ce_efuse_parsing(efuse, map);
 		break;
-	case RTW_HCI_TYPE_USB:
-		rtw8821cu_efuse_parsing(efuse, map);
-		break;
 	case RTW_HCI_TYPE_SDIO:
 		rtw8821cs_efuse_parsing(efuse, map);
+		break;
+	case RTW_HCI_TYPE_USB:
+		rtw8821cu_efuse_parsing(efuse, map);
 		break;
 	default:
 		/* unsupported now */
@@ -1546,7 +1546,6 @@ static const struct rtw_rfe_def rtw8821c_rfe_defs[] = {
 	[2] = RTW_DEF_RFE_EXT(8821c, 0, 0, 2),
 	[4] = RTW_DEF_RFE_EXT(8821c, 0, 0, 2),
 	[6] = RTW_DEF_RFE(8821c, 0, 0),
-	[34] = RTW_DEF_RFE(8821c, 0, 0),
 };
 
 static struct rtw_hw_reg rtw8821c_dig[] = {

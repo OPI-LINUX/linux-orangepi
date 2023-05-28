@@ -6,7 +6,6 @@
  * Based on the work of Icenowy Zheng <icenowy@aosc.io>
  * Based on the work of Ondrej Jirman <megous@megous.com>
  * Based on the work of Josef Gajdusek <atx@atx.name>
- * H616 support added by Piotr Oniszczuk <piotr.oniszczuk@gmail.com>
  */
 
 #include <linux/bitmap.h>
@@ -38,15 +37,14 @@
 #define SUN8I_THS_TEMP_CALIB			0x74
 #define SUN8I_THS_TEMP_DATA			0x80
 
-// H616 THS registers are the thesame like in H6 so we will reuse them for H616
 #define SUN50I_THS_CTRL0			0x00
-#define SUN50I_H6_THS_ENABLE		0x04
+#define SUN50I_H6_THS_ENABLE			0x04
 #define SUN50I_H6_THS_PC			0x08
 #define SUN50I_H6_THS_DIC			0x10
 #define SUN50I_H6_THS_DIS			0x20
 #define SUN50I_H6_THS_MFC			0x30
-#define SUN50I_H6_THS_TEMP_CALIB	0xa0
-#define SUN50I_H6_THS_TEMP_DATA		0xc0
+#define SUN50I_H6_THS_TEMP_CALIB		0xa0
+#define SUN50I_H6_THS_TEMP_DATA			0xc0
 
 #define SUN8I_THS_CTRL0_T_ACQ0(x)		(GENMASK(15, 0) & (x))
 #define SUN8I_THS_CTRL2_T_ACQ1(x)		((GENMASK(15, 0) & (x)) << 16)
@@ -96,14 +94,7 @@ struct ths_device {
 static int sun8i_ths_calc_temp(struct ths_device *tmdev,
 			       int id, int reg)
 {
-	//printk("sensor:%d reg:%d offset:%d scale:%d\n", id, reg, tmdev->chip->offset, tmdev->chip->scale);
 	return tmdev->chip->offset - (reg * tmdev->chip->scale / 10);
-}
-
-static int sun9i_ths_calc_temp(struct ths_device *tmdev,
-			       int id, int reg)
-{
-	return tmdev->chip->offset + (reg * tmdev->chip->scale / 10);
 }
 
 static int sun50i_h5_calc_temp(struct ths_device *tmdev,
@@ -115,6 +106,12 @@ static int sun50i_h5_calc_temp(struct ths_device *tmdev,
 		return -1452 * reg / 10 + 259000;
 	else
 		return -1590 * reg / 10 + 276000;
+}
+
+static int sun50i_h616_calc_temp(struct ths_device *tmdev,
+			       int id, int reg)
+{
+	return (reg * tmdev->chip->scale / 10) - (tmdev->chip->offset * tmdev->chip->scale / 10);
 }
 
 static int sun8i_ths_get_temp(struct thermal_zone_device *tz, int *temp)
@@ -219,7 +216,7 @@ static int sun8i_h3_ths_calibrate(struct ths_device *tmdev,
 
 		regmap_update_bits(tmdev->regmap,
 				   SUN8I_THS_TEMP_CALIB + (4 * (i >> 1)),
-				   0xfff << offset,
+				   TEMP_CALIB_MASK << offset,
 				   caldata[i] << offset);
 	}
 
@@ -280,7 +277,7 @@ static int sun50i_h6_ths_calibrate(struct ths_device *tmdev,
 		offset = (i % 2) * 16;
 		regmap_update_bits(tmdev->regmap,
 				   SUN50I_H6_THS_TEMP_CALIB + (i / 2 * 4),
-				   0xfff << offset,
+				   TEMP_CALIB_MASK << offset,
 				   cdata << offset);
 	}
 
@@ -288,7 +285,7 @@ static int sun50i_h6_ths_calibrate(struct ths_device *tmdev,
 }
 
 static int sun50i_h616_ths_calibrate(struct ths_device *tmdev,
-				   u16 *caldata, int callen)
+				     u16 *caldata, int callen)
 {
 	struct device *dev = tmdev->dev;
 	int i, ft_temp;
@@ -297,7 +294,7 @@ static int sun50i_h616_ths_calibrate(struct ths_device *tmdev,
 		return -EINVAL;
 
 	/*
-	 * h616 efuse THS calib. data layout:
+	 * h616 efuse THS calibration data layout:
 	 *
 	 * 0      11  16     27   32     43   48    57
 	 * +----------+-----------+-----------+-----------+
@@ -326,11 +323,12 @@ static int sun50i_h616_ths_calibrate(struct ths_device *tmdev,
 		else
 			reg = (int)caldata[i + 1] & TEMP_CALIB_MASK;
 
-		delta = (ft_temp * 100 - tmdev->chip->calc_temp(tmdev, i, reg)) / tmdev->chip->scale;
+		delta = (ft_temp * 100 - tmdev->chip->calc_temp(tmdev, i, reg))
+			/ tmdev->chip->scale;
 		cdata = CALIBRATE_DEFAULT - delta;
-
 		if (cdata & ~TEMP_CALIB_MASK) {
 			dev_warn(dev, "sensor%d is not calibrated.\n", i);
+
 			continue;
 		}
 
@@ -721,14 +719,14 @@ static const struct ths_thermal_chip sun50i_h6_ths = {
 static const struct ths_thermal_chip sun50i_h616_ths = {
 	.sensor_num = 4,
 	.has_bus_clk_reset = true,
-	.ft_deviation = 8000,
-	.offset = -32550,
-	.scale = 806,
+	.ft_deviation = 0,
+	.offset = 3255,
+	.scale = -806,
 	.temp_data_base = SUN50I_H6_THS_TEMP_DATA,
 	.calibrate = sun50i_h616_ths_calibrate,
 	.init = sun50i_h616_thermal_init,
 	.irq_ack = sun50i_h6_irq_ack,
-	.calc_temp = sun9i_ths_calc_temp,
+	.calc_temp = sun50i_h616_calc_temp,
 };
 
 static const struct of_device_id of_ths_match[] = {

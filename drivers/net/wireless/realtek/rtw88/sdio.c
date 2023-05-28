@@ -9,16 +9,15 @@
 #include <linux/module.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/sdio_func.h>
-#include "main.h"
-#include "debug.h"
+#include "sdio.h"
+#include "reg.h"
+#include "tx.h"
+#include "rx.h"
 #include "fw.h"
 #include "ps.h"
-#include "reg.h"
-#include "rx.h"
-#include "sdio.h"
-#include "tx.h"
+#include "debug.h"
 
-#define RTW_SDIO_INDIRECT_RW_RETRIES			50
+#define RTW_SDIO_INDIRECT_RW_RETRIES		50
 
 static bool rtw_sdio_is_bus_addr(u32 addr)
 {
@@ -52,155 +51,76 @@ static u32 rtw_sdio_to_bus_offset(struct rtw_dev *rtwdev, u32 addr)
 	return addr;
 }
 
-static bool rtw_sdio_use_memcpy_io(struct rtw_dev *rtwdev, u32 addr,
-				   u8 alignment)
+static void rtw_sdio_writel(struct rtw_sdio *rtwsdio, u32 val,
+			    u32 addr, int *ret)
 {
-	return IS_ALIGNED(addr, alignment) &&
-	       test_bit(RTW_FLAG_POWERON, rtwdev->flags);
-}
-
-static void rtw_sdio_writel(struct rtw_dev *rtwdev, u32 val, u32 addr,
-			    int *err_ret)
-{
-	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	u8 buf[4];
 	int i;
 
-	if (rtw_sdio_use_memcpy_io(rtwdev, addr, 4)) {
-		sdio_writel(rtwsdio->sdio_func, val, addr, err_ret);
+	if (!(addr & 3) && rtwsdio->is_powered_on) {
+		sdio_writel(rtwsdio->sdio_func, val, addr, ret);
 		return;
 	}
 
 	*(__le32 *)buf = cpu_to_le32(val);
 
 	for (i = 0; i < 4; i++) {
-		sdio_writeb(rtwsdio->sdio_func, buf[i], addr + i, err_ret);
-		if (*err_ret)
+		sdio_writeb(rtwsdio->sdio_func, buf[i], addr + i, ret);
+		if (*ret)
 			return;
 	}
 }
 
-static void rtw_sdio_writew(struct rtw_dev *rtwdev, u16 val, u32 addr,
-			    int *err_ret)
+static u32 rtw_sdio_readl(struct rtw_sdio *rtwsdio, u32 addr, int *ret)
 {
-	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
-	u8 buf[2];
-	int i;
-
-	if (rtw_sdio_use_memcpy_io(rtwdev, addr, 2)) {
-		sdio_writew(rtwsdio->sdio_func, val, addr, err_ret);
-		return;
-	}
-
-	*(__le16 *)buf = cpu_to_le16(val);
-
-	for (i = 0; i < 2; i++) {
-		sdio_writeb(rtwsdio->sdio_func, buf[i], addr + i, err_ret);
-		if (*err_ret)
-			return;
-	}
-}
-
-static u32 rtw_sdio_readl(struct rtw_dev *rtwdev, u32 addr, int *err_ret)
-{
-	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	u8 buf[4];
 	int i;
 
-	if (rtw_sdio_use_memcpy_io(rtwdev, addr, 4))
-		return sdio_readl(rtwsdio->sdio_func, addr, err_ret);
+	if (!(addr & 3) && rtwsdio->is_powered_on)
+		return sdio_readl(rtwsdio->sdio_func, addr, ret);
 
 	for (i = 0; i < 4; i++) {
-		buf[i] = sdio_readb(rtwsdio->sdio_func, addr + i, err_ret);
-		if (*err_ret)
+		buf[i] = sdio_readb(rtwsdio->sdio_func, addr + i, ret);
+		if (*ret)
 			return 0;
 	}
 
 	return le32_to_cpu(*(__le32 *)buf);
 }
 
-static u16 rtw_sdio_readw(struct rtw_dev *rtwdev, u32 addr, int *err_ret)
+static u8 rtw_sdio_read_indirect8(struct rtw_dev *rtwdev, u32 addr, int *ret)
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
-	u8 buf[2];
-	int i;
-
-	if (rtw_sdio_use_memcpy_io(rtwdev, addr, 2))
-		return sdio_readw(rtwsdio->sdio_func, addr, err_ret);
-
-	for (i = 0; i < 2; i++) {
-		buf[i] = sdio_readb(rtwsdio->sdio_func, addr + i, err_ret);
-		if (*err_ret)
-			return 0;
-	}
-
-	return le16_to_cpu(*(__le16 *)buf);
-}
-
-static u32 rtw_sdio_to_io_address(struct rtw_dev *rtwdev, u32 addr,
-				  bool direct)
-{
-	if (!direct)
-		return addr;
-
-	if (!rtw_sdio_is_bus_addr(addr))
-		addr |= WLAN_IOREG_OFFSET;
-
-	return rtw_sdio_to_bus_offset(rtwdev, addr);
-}
-
-static bool rtw_sdio_use_direct_io(struct rtw_dev *rtwdev, u32 addr)
-{
-	return !rtw_sdio_is_sdio30_supported(rtwdev) ||
-		rtw_sdio_is_bus_addr(addr);
-}
-
-static int rtw_sdio_indirect_reg_cfg(struct rtw_dev *rtwdev, u32 addr, u32 cfg)
-{
-	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
-	unsigned int retry;
-	u32 reg_cfg;
-	int ret;
+	u32 reg_cfg, reg_data;
+	int retry;
 	u8 tmp;
 
 	reg_cfg = rtw_sdio_to_bus_offset(rtwdev, REG_SDIO_INDIRECT_REG_CFG);
+	reg_data = rtw_sdio_to_bus_offset(rtwdev, REG_SDIO_INDIRECT_REG_DATA);
 
-	rtw_sdio_writel(rtwdev, addr | cfg | BIT_SDIO_INDIRECT_REG_CFG_UNK20,
-			reg_cfg, &ret);
-	if (ret)
-		return ret;
-
-	for (retry = 0; retry < RTW_SDIO_INDIRECT_RW_RETRIES; retry++) {
-		tmp = sdio_readb(rtwsdio->sdio_func, reg_cfg + 2, &ret);
-		if (!ret && (tmp & BIT(4)))
-			return 0;
-	}
-
-	return -ETIMEDOUT;
-}
-
-static u8 rtw_sdio_indirect_read8(struct rtw_dev *rtwdev, u32 addr,
-				  int *err_ret)
-{
-	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
-	u32 reg_data;
-
-	*err_ret = rtw_sdio_indirect_reg_cfg(rtwdev, addr,
-					     BIT_SDIO_INDIRECT_REG_CFG_READ);
-	if (*err_ret)
+	rtw_sdio_writel(rtwsdio, BIT(19) | addr, reg_cfg, ret);
+	if (*ret)
 		return 0;
 
-	reg_data = rtw_sdio_to_bus_offset(rtwdev, REG_SDIO_INDIRECT_REG_DATA);
-	return sdio_readb(rtwsdio->sdio_func, reg_data, err_ret);
+	for (retry = 0; retry < RTW_SDIO_INDIRECT_RW_RETRIES; retry++) {
+		tmp = sdio_readb(rtwsdio->sdio_func, reg_cfg + 2, ret);
+		if (!ret && tmp & BIT(4))
+			break;
+	}
+
+	if (*ret)
+		return 0;
+
+	return sdio_readb(rtwsdio->sdio_func, reg_data, ret);
 }
 
-static int rtw_sdio_indirect_read_bytes(struct rtw_dev *rtwdev, u32 addr,
+static int rtw_sdio_read_indirect_bytes(struct rtw_dev *rtwdev, u32 addr,
 					u8 *buf, int count)
 {
-	int i, ret = 0;
+	int i, ret;
 
 	for (i = 0; i < count; i++) {
-		buf[i] = rtw_sdio_indirect_read8(rtwdev, addr + i, &ret);
+		buf[0] = rtw_sdio_read_indirect8(rtwdev, addr + i, &ret);
 		if (ret)
 			break;
 	}
@@ -208,50 +128,29 @@ static int rtw_sdio_indirect_read_bytes(struct rtw_dev *rtwdev, u32 addr,
 	return ret;
 }
 
-static u16 rtw_sdio_indirect_read16(struct rtw_dev *rtwdev, u32 addr,
-				    int *err_ret)
+static u32 rtw_sdio_read_indirect32(struct rtw_dev *rtwdev, u32 addr, int *ret)
 {
-	u32 reg_data;
-	u8 buf[2];
+	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
+	u32 reg_cfg, reg_data, val;
+	int retry;
 
-	if (!IS_ALIGNED(addr, 2)) {
-		*err_ret = rtw_sdio_indirect_read_bytes(rtwdev, addr, buf, 2);
-		if (*err_ret)
-			return 0;
+	reg_cfg = rtw_sdio_to_bus_offset(rtwdev, REG_SDIO_INDIRECT_REG_CFG);
+	reg_data = rtw_sdio_to_bus_offset(rtwdev, REG_SDIO_INDIRECT_REG_DATA);
 
-		return le16_to_cpu(*(__le16 *)buf);
-	}
-
-	*err_ret = rtw_sdio_indirect_reg_cfg(rtwdev, addr,
-					     BIT_SDIO_INDIRECT_REG_CFG_READ);
-	if (*err_ret)
+	rtw_sdio_writel(rtwsdio, BIT(19) | BIT(17) | addr, reg_cfg, ret);
+	if (*ret)
 		return 0;
 
-	reg_data = rtw_sdio_to_bus_offset(rtwdev, REG_SDIO_INDIRECT_REG_DATA);
-	return rtw_sdio_readw(rtwdev, reg_data, err_ret);
-}
-
-static u32 rtw_sdio_indirect_read32(struct rtw_dev *rtwdev, u32 addr,
-				    int *err_ret)
-{
-	u32 reg_data;
-	u8 buf[4];
-
-	if (!IS_ALIGNED(addr, 4)) {
-		*err_ret = rtw_sdio_indirect_read_bytes(rtwdev, addr, buf, 4);
-		if (*err_ret)
-			return 0;
-
-		return le32_to_cpu(*(__le32 *)buf);
+	for (retry = 0; retry < RTW_SDIO_INDIRECT_RW_RETRIES; retry++) {
+		val = sdio_readb(rtwsdio->sdio_func, reg_cfg + 2, ret);
+		if (!ret && (val & BIT(4)))
+			break;
 	}
 
-	*err_ret = rtw_sdio_indirect_reg_cfg(rtwdev, addr,
-					     BIT_SDIO_INDIRECT_REG_CFG_READ);
-	if (*err_ret)
-		return 0;
+	if (!*ret)
+		val = rtw_sdio_readl(rtwsdio, reg_data, ret);
 
-	reg_data = rtw_sdio_to_bus_offset(rtwdev, REG_SDIO_INDIRECT_REG_DATA);
-	return rtw_sdio_readl(rtwdev, reg_data, err_ret);
+	return val;
 }
 
 static u8 rtw_sdio_read8(struct rtw_dev *rtwdev, u32 addr)
@@ -261,17 +160,18 @@ static u8 rtw_sdio_read8(struct rtw_dev *rtwdev, u32 addr)
 	int ret;
 	u8 val;
 
-	direct = rtw_sdio_use_direct_io(rtwdev, addr);
-	addr = rtw_sdio_to_io_address(rtwdev, addr, direct);
 	bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
+	direct = rtw_sdio_is_bus_addr(addr);
 
 	if (bus_claim)
 		sdio_claim_host(rtwsdio->sdio_func);
 
-	if (direct)
+	if (direct) {
+		addr = rtw_sdio_to_bus_offset(rtwdev, addr);
 		val = sdio_readb(rtwsdio->sdio_func, addr, &ret);
-	else
-		val = rtw_sdio_indirect_read8(rtwdev, addr, &ret);
+	} else {
+		val = rtw_sdio_read_indirect8(rtwdev, addr, &ret);
+	}
 
 	if (bus_claim)
 		sdio_release_host(rtwsdio->sdio_func);
@@ -286,20 +186,28 @@ static u16 rtw_sdio_read16(struct rtw_dev *rtwdev, u32 addr)
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	bool direct, bus_claim;
+	u8 buf[2];
 	int ret;
 	u16 val;
 
-	direct = rtw_sdio_use_direct_io(rtwdev, addr);
-	addr = rtw_sdio_to_io_address(rtwdev, addr, direct);
 	bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
+	direct = rtw_sdio_is_bus_addr(addr);
 
 	if (bus_claim)
 		sdio_claim_host(rtwsdio->sdio_func);
 
-	if (direct)
-		val = rtw_sdio_readw(rtwdev, addr, &ret);
-	else
-		val = rtw_sdio_indirect_read16(rtwdev, addr, &ret);
+	if (direct) {
+		addr = rtw_sdio_to_bus_offset(rtwdev, addr);
+		buf[0] = sdio_readb(rtwsdio->sdio_func, addr, &ret);
+		if (!ret)
+			buf[1] = sdio_readb(rtwsdio->sdio_func, addr + 1, &ret);
+		val = le16_to_cpu(*(__le16 *)buf);
+	} else if (addr & 1) {
+		ret = rtw_sdio_read_indirect_bytes(rtwdev, addr, buf, 2);
+		val = le16_to_cpu(*(__le16 *)buf);
+	} else {
+		val = rtw_sdio_read_indirect32(rtwdev, addr, &ret);
+	}
 
 	if (bus_claim)
 		sdio_release_host(rtwsdio->sdio_func);
@@ -314,20 +222,25 @@ static u32 rtw_sdio_read32(struct rtw_dev *rtwdev, u32 addr)
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	bool direct, bus_claim;
+	u8 buf[4];
 	u32 val;
 	int ret;
 
-	direct = rtw_sdio_use_direct_io(rtwdev, addr);
-	addr = rtw_sdio_to_io_address(rtwdev, addr, direct);
 	bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
+	direct = rtw_sdio_is_bus_addr(addr);
 
 	if (bus_claim)
 		sdio_claim_host(rtwsdio->sdio_func);
 
-	if (direct)
-		val = rtw_sdio_readl(rtwdev, addr, &ret);
-	else
-		val = rtw_sdio_indirect_read32(rtwdev, addr, &ret);
+	if (direct) {
+		addr = rtw_sdio_to_bus_offset(rtwdev, addr);
+		val = rtw_sdio_readl(rtwsdio, addr, &ret);
+	} else if (addr & 3) {
+		ret = rtw_sdio_read_indirect_bytes(rtwdev, addr, buf, 4);
+		val = le32_to_cpu(*(__le32 *)buf);
+	} else {
+		val = rtw_sdio_read_indirect32(rtwdev, addr, &ret);
+	}
 
 	if (bus_claim)
 		sdio_release_host(rtwsdio->sdio_func);
@@ -338,78 +251,27 @@ static u32 rtw_sdio_read32(struct rtw_dev *rtwdev, u32 addr)
 	return val;
 }
 
-static void rtw_sdio_indirect_write8(struct rtw_dev *rtwdev, u8 val, u32 addr,
-				     int *err_ret)
+static u32 rtw_sdio_to_write_address(struct rtw_dev *rtwdev, u32 addr)
 {
-	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
-	u32 reg_data;
+	if (!rtw_sdio_is_bus_addr(addr))
+		addr |= WLAN_IOREG_OFFSET;
 
-	reg_data = rtw_sdio_to_bus_offset(rtwdev, REG_SDIO_INDIRECT_REG_DATA);
-	sdio_writeb(rtwsdio->sdio_func, val, reg_data, err_ret);
-	if (*err_ret)
-		return;
-
-	*err_ret = rtw_sdio_indirect_reg_cfg(rtwdev, addr,
-					     BIT_SDIO_INDIRECT_REG_CFG_WRITE);
-}
-
-static void rtw_sdio_indirect_write16(struct rtw_dev *rtwdev, u16 val, u32 addr,
-				      int *err_ret)
-{
-	u32 reg_data;
-
-	if (!IS_ALIGNED(addr, 2)) {
-		addr = rtw_sdio_to_io_address(rtwdev, addr, true);
-		rtw_sdio_writew(rtwdev, val, addr, err_ret);
-		return;
-	}
-
-	reg_data = rtw_sdio_to_bus_offset(rtwdev, REG_SDIO_INDIRECT_REG_DATA);
-	rtw_sdio_writew(rtwdev, val, reg_data, err_ret);
-	if (*err_ret)
-		return;
-
-	*err_ret = rtw_sdio_indirect_reg_cfg(rtwdev, addr,
-					     BIT_SDIO_INDIRECT_REG_CFG_WRITE |
-					     BIT_SDIO_INDIRECT_REG_CFG_WORD);
-}
-
-static void rtw_sdio_indirect_write32(struct rtw_dev *rtwdev, u32 val,
-				      u32 addr, int *err_ret)
-{
-	u32 reg_data;
-
-	if (!IS_ALIGNED(addr, 4)) {
-		addr = rtw_sdio_to_io_address(rtwdev, addr, true);
-		rtw_sdio_writel(rtwdev, val, addr, err_ret);
-		return;
-	}
-
-	reg_data = rtw_sdio_to_bus_offset(rtwdev, REG_SDIO_INDIRECT_REG_DATA);
-	rtw_sdio_writel(rtwdev, val, reg_data, err_ret);
-
-	*err_ret = rtw_sdio_indirect_reg_cfg(rtwdev, addr,
-					     BIT_SDIO_INDIRECT_REG_CFG_WRITE |
-					     BIT_SDIO_INDIRECT_REG_CFG_DWORD);
+	return rtw_sdio_to_bus_offset(rtwdev, addr);
 }
 
 static void rtw_sdio_write8(struct rtw_dev *rtwdev, u32 addr, u8 val)
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
-	bool direct, bus_claim;
+	bool bus_claim;
 	int ret;
 
-	direct = rtw_sdio_use_direct_io(rtwdev, addr);
-	addr = rtw_sdio_to_io_address(rtwdev, addr, direct);
+	addr = rtw_sdio_to_write_address(rtwdev, addr);
 	bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
 
 	if (bus_claim)
 		sdio_claim_host(rtwsdio->sdio_func);
 
-	if (direct)
-		sdio_writeb(rtwsdio->sdio_func, val, addr, &ret);
-	else
-		rtw_sdio_indirect_write8(rtwdev, val, addr, &ret);
+	sdio_writeb(rtwsdio->sdio_func, val, addr, &ret);
 
 	if (bus_claim)
 		sdio_release_host(rtwsdio->sdio_func);
@@ -421,20 +283,18 @@ static void rtw_sdio_write8(struct rtw_dev *rtwdev, u32 addr, u8 val)
 static void rtw_sdio_write16(struct rtw_dev *rtwdev, u32 addr, u16 val)
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
-	bool direct, bus_claim;
+	bool bus_claim;
 	int ret;
 
-	direct = rtw_sdio_use_direct_io(rtwdev, addr);
-	addr = rtw_sdio_to_io_address(rtwdev, addr, direct);
+	addr = rtw_sdio_to_write_address(rtwdev, addr);
 	bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
 
 	if (bus_claim)
 		sdio_claim_host(rtwsdio->sdio_func);
 
-	if (direct)
-		rtw_sdio_writew(rtwdev, val, addr, &ret);
-	else
-		rtw_sdio_indirect_write16(rtwdev, val, addr, &ret);
+	sdio_writeb(rtwsdio->sdio_func, val, addr, &ret);
+	if (!ret)
+		sdio_writeb(rtwsdio->sdio_func, val >> 8, addr + 1, &ret);
 
 	if (bus_claim)
 		sdio_release_host(rtwsdio->sdio_func);
@@ -446,20 +306,16 @@ static void rtw_sdio_write16(struct rtw_dev *rtwdev, u32 addr, u16 val)
 static void rtw_sdio_write32(struct rtw_dev *rtwdev, u32 addr, u32 val)
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
-	bool direct, bus_claim;
+	bool bus_claim;
 	int ret;
 
-	direct = rtw_sdio_use_direct_io(rtwdev, addr);
-	addr = rtw_sdio_to_io_address(rtwdev, addr, direct);
+	addr = rtw_sdio_to_write_address(rtwdev, addr);
 	bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
 
 	if (bus_claim)
 		sdio_claim_host(rtwsdio->sdio_func);
 
-	if (direct)
-		rtw_sdio_writel(rtwdev, val, addr, &ret);
-	else
-		rtw_sdio_indirect_write32(rtwdev, val, addr, &ret);
+	rtw_sdio_writel(rtwsdio, val, addr, &ret);
 
 	if (bus_claim)
 		sdio_release_host(rtwsdio->sdio_func);
@@ -508,22 +364,15 @@ static u32 rtw_sdio_get_tx_addr(struct rtw_dev *rtwdev, size_t size,
 static int rtw_sdio_read_port(struct rtw_dev *rtwdev, u8 *buf, size_t count)
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
-	bool bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
 	u32 rxaddr = rtwsdio->rx_addr++;
 	int ret;
-
-	if (bus_claim)
-		sdio_claim_host(rtwsdio->sdio_func);
 
 	ret = sdio_memcpy_fromio(rtwsdio->sdio_func, buf,
 				 RTW_SDIO_ADDR_RX_RX0FF_GEN(rxaddr), count);
 	if (ret)
 		rtw_warn(rtwdev,
-			 "Failed to read %zu byte(s) from SDIO port 0x%08x",
+			 "Failed to read %lu byte(s) from SDIO port 0x%08x",
 			 count, rxaddr);
-
-	if (bus_claim)
-		sdio_release_host(rtwsdio->sdio_func);
 
 	return ret;
 }
@@ -558,7 +407,7 @@ static int rtw_sdio_check_free_txpg(struct rtw_dev *rtwdev, u8 queue,
 			break;
 		default:
 			rtw_warn(rtwdev, "Unknown mapping for queue %u\n", queue);
-			return -EINVAL;
+			break;
 		}
 
 		/* add the pages from the public queue */
@@ -647,7 +496,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	if (ret)
 		rtw_warn(rtwdev,
-			 "Failed to write %zu byte(s) to SDIO port 0x%08x",
+			 "Failed to write %lu byte(s) to SDIO port 0x%08x",
 			 txsize, txaddr);
 
 	return ret;
@@ -660,28 +509,33 @@ static void rtw_sdio_init(struct rtw_dev *rtwdev)
 	rtwsdio->irq_mask = REG_SDIO_HIMR_RX_REQUEST | REG_SDIO_HIMR_CPWM1;
 }
 
-static void rtw_sdio_enable_rx_aggregation(struct rtw_dev *rtwdev)
+static void rtw_sdio_rx_aggregation(struct rtw_dev *rtwdev, bool enable)
 {
 	u8 size, timeout;
 
-	if (rtw_chip_wcpu_11n(rtwdev)) {
-		size = 0x6;
-		timeout = 0x6;
+	if (enable) {
+		if (rtwdev->chip->id == RTW_CHIP_TYPE_8822C) {
+			size = 0xff;
+			timeout = 0x20;
+		} else {
+			size = 0x6;
+			timeout = 0x6;
+		}
+
+		/* Make the firmware honor the size limit configured below */
+		rtw_write32_set(rtwdev, REG_RXDMA_AGG_PG_TH, BIT_EN_PRE_CALC);
+
+		rtw_write8_set(rtwdev, REG_TXDMA_PQ_MAP, BIT_RXDMA_AGG_EN);
+
+		rtw_write16(rtwdev, REG_RXDMA_AGG_PG_TH, size |
+			    (timeout << BIT_SHIFT_DMA_AGG_TO_V1));
+
+		rtw_write8_set(rtwdev, REG_RXDMA_MODE, BIT_DMA_MODE);
 	} else {
-		size = 0xff;
-		timeout = 0x1;
+		rtw_write32_clr(rtwdev, REG_RXDMA_AGG_PG_TH, BIT_EN_PRE_CALC);
+		rtw_write8_clr(rtwdev, REG_TXDMA_PQ_MAP, BIT_RXDMA_AGG_EN);
+		rtw_write8_clr(rtwdev, REG_RXDMA_MODE, BIT_DMA_MODE);
 	}
-
-	/* Make the firmware honor the size limit configured below */
-	rtw_write32_set(rtwdev, REG_RXDMA_AGG_PG_TH, BIT_EN_PRE_CALC);
-
-	rtw_write8_set(rtwdev, REG_TXDMA_PQ_MAP, BIT_RXDMA_AGG_EN);
-
-	rtw_write16(rtwdev, REG_RXDMA_AGG_PG_TH,
-		    FIELD_PREP(BIT_RXDMA_AGG_PG_TH, size) |
-		    FIELD_PREP(BIT_DMA_AGG_TO_V1, timeout));
-
-	rtw_write8_set(rtwdev, REG_RXDMA_MODE, BIT_DMA_MODE);
 }
 
 static void rtw_sdio_enable_interrupt(struct rtw_dev *rtwdev)
@@ -714,7 +568,7 @@ static u8 rtw_sdio_get_tx_qsel(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	default:
 		return skb->priority;
 	}
-}
+};
 
 static int rtw_sdio_setup(struct rtw_dev *rtwdev)
 {
@@ -724,7 +578,7 @@ static int rtw_sdio_setup(struct rtw_dev *rtwdev)
 
 static int rtw_sdio_start(struct rtw_dev *rtwdev)
 {
-	rtw_sdio_enable_rx_aggregation(rtwdev);
+	rtw_sdio_rx_aggregation(rtwdev, false);
 	rtw_sdio_enable_interrupt(rtwdev);
 
 	return 0;
@@ -807,6 +661,13 @@ static void rtw_sdio_interface_cfg(struct rtw_dev *rtwdev)
 	rtw_write32(rtwdev, REG_SDIO_TX_CTRL, val);
 }
 
+static void rtw_sdio_power_switch(struct rtw_dev *rtwdev, bool on)
+{
+	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
+
+	rtwsdio->is_powered_on = on;
+}
+
 static struct rtw_sdio_tx_data *rtw_sdio_get_tx_data(struct sk_buff *skb)
 {
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
@@ -852,7 +713,7 @@ static void rtw_sdio_tx_skb_prepare(struct rtw_dev *rtwdev,
 	pkt_info->qsel = rtw_sdio_get_tx_qsel(rtwdev, skb, queue);
 
 	rtw_tx_fill_tx_desc(pkt_info, skb);
-	rtw_tx_fill_txdesc_checksum(rtwdev, pkt_info, pkt_desc);
+	chip->ops->fill_txdesc_checksum(rtwdev, pkt_info, pkt_desc);
 }
 
 static int rtw_sdio_write_data(struct rtw_dev *rtwdev,
@@ -924,7 +785,7 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 			    u32 pkt_offset, struct rtw_rx_pkt_stat *pkt_stat,
 			    struct ieee80211_rx_status *rx_status)
 {
-	*IEEE80211_SKB_RXCB(skb) = *rx_status;
+	memcpy(IEEE80211_SKB_RXCB(skb), rx_status, sizeof(*rx_status));
 
 	if (pkt_stat->is_c2h) {
 		skb_put(skb, pkt_stat->pkt_len + pkt_offset);
@@ -1006,9 +867,9 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 
 static void rtw_sdio_rx_isr(struct rtw_dev *rtwdev)
 {
-	u32 rx_len, total_rx_bytes = 0;
+	u32 rx_len;
 
-	while (total_rx_bytes < SZ_64K) {
+	while (true) {
 		if (rtw_chip_wcpu_11n(rtwdev))
 			rx_len = rtw_read16(rtwdev, REG_SDIO_RX0_REQ_LEN);
 		else
@@ -1018,8 +879,6 @@ static void rtw_sdio_rx_isr(struct rtw_dev *rtwdev)
 			break;
 
 		rtw_sdio_rxfifo_recv(rtwdev, rx_len);
-
-		total_rx_bytes += rx_len;
 	}
 }
 
@@ -1048,16 +907,7 @@ static void rtw_sdio_handle_interrupt(struct sdio_func *sdio_func)
 
 static int __maybe_unused rtw_sdio_suspend(struct device *dev)
 {
-	struct sdio_func *func = dev_to_sdio_func(dev);
-	struct ieee80211_hw *hw = dev_get_drvdata(dev);
-	struct rtw_dev *rtwdev = hw->priv;
-	int ret;
-
-	ret = sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
-	if (ret)
-		rtw_err(rtwdev, "Failed to host PM flag MMC_PM_KEEP_POWER");
-
-	return ret;
+	return 0;
 }
 
 static int __maybe_unused rtw_sdio_resume(struct device *dev)
@@ -1123,6 +973,8 @@ static struct rtw_hci_ops rtw_sdio_ops = {
 	.link_ps = rtw_sdio_link_ps,
 	.interface_cfg = rtw_sdio_interface_cfg,
 
+	.power_switch = rtw_sdio_power_switch,
+
 	.read8 = rtw_sdio_read8,
 	.read16 = rtw_sdio_read16,
 	.read32 = rtw_sdio_read32,
@@ -1180,20 +1032,22 @@ static void rtw_sdio_process_tx_queue(struct rtw_dev *rtwdev,
 	struct sk_buff *skb;
 	int ret;
 
-	skb = skb_dequeue(&rtwsdio->tx_queue[queue]);
-	if (!skb)
-		return;
+	while (true) {
+		skb = skb_dequeue(&rtwsdio->tx_queue[queue]);
+		if (!skb)
+			break;
 
-	ret = rtw_sdio_write_port(rtwdev, skb, queue);
-	if (ret) {
-		skb_queue_head(&rtwsdio->tx_queue[queue], skb);
-		return;
+		ret = rtw_sdio_write_port(rtwdev, skb, queue);
+		if (ret) {
+			skb_queue_head(&rtwsdio->tx_queue[queue], skb);
+			break;
+		}
+
+		if (queue <= RTW_TX_QUEUE_VO)
+			rtw_sdio_indicate_tx_status(rtwdev, skb);
+		else
+			dev_kfree_skb_any(skb);
 	}
-
-	if (queue <= RTW_TX_QUEUE_VO)
-		rtw_sdio_indicate_tx_status(rtwdev, skb);
-	else
-		dev_kfree_skb_any(skb);
 }
 
 static void rtw_sdio_tx_handler(struct work_struct *work)
@@ -1202,27 +1056,28 @@ static void rtw_sdio_tx_handler(struct work_struct *work)
 		container_of(work, struct rtw_sdio_work_data, work);
 	struct rtw_dev *rtwdev = work_data->rtwdev;
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
-	int limit, queue;
+	bool has_more_tx_data;
+	int queue;
 
 	if (!rtw_fw_feature_check(&rtwdev->fw, FW_FEATURE_TX_WAKE))
 		rtw_sdio_deep_ps_leave(rtwdev);
 
-	for (queue = RTK_MAX_TX_QUEUE_NUM - 1; queue >= 0; queue--) {
-		for (limit = 0; limit < 1000; limit++) {
+	do {
+		has_more_tx_data = false;
+
+		for (queue = RTK_MAX_TX_QUEUE_NUM - 1; queue >= 0; queue--) {
 			rtw_sdio_process_tx_queue(rtwdev, queue);
 
-			if (skb_queue_empty(&rtwsdio->tx_queue[queue]))
-				break;
+			if (!skb_queue_empty(&rtwsdio->tx_queue[queue]))
+				has_more_tx_data = true;
 		}
-	}
+	} while (has_more_tx_data);
 }
 
 static void rtw_sdio_free_irq(struct rtw_dev *rtwdev,
 			      struct sdio_func *sdio_func)
 {
-	sdio_claim_host(sdio_func);
 	sdio_release_irq(sdio_func);
-	sdio_release_host(sdio_func);
 }
 
 static int rtw_sdio_init_tx(struct rtw_dev *rtwdev)
@@ -1316,20 +1171,20 @@ int rtw_sdio_probe(struct sdio_func *sdio_func,
 		goto err_destroy_txwq;
 	}
 
-	ret = rtw_sdio_request_irq(rtwdev, sdio_func);
-	if (ret)
-		goto err_destroy_txwq;
-
 	ret = rtw_register_hw(rtwdev, hw);
 	if (ret) {
 		rtw_err(rtwdev, "failed to register hw");
-		goto err_free_irq;
+		goto err_destroy_txwq;
 	}
+
+	ret = rtw_sdio_request_irq(rtwdev, sdio_func);
+	if (ret)
+		goto err_unregister_hw;
 
 	return 0;
 
-err_free_irq:
-	rtw_sdio_free_irq(rtwdev, sdio_func);
+err_unregister_hw:
+	rtw_unregister_hw(rtwdev, hw);
 err_destroy_txwq:
 	rtw_sdio_deinit_tx(rtwdev);
 err_sdio_declaim:
@@ -1355,8 +1210,8 @@ void rtw_sdio_remove(struct sdio_func *sdio_func)
 
 	rtw_unregister_hw(rtwdev, hw);
 	rtw_sdio_disable_interrupt(rtwdev);
-	rtw_sdio_free_irq(rtwdev, sdio_func);
 	rtw_sdio_declaim(rtwdev, sdio_func);
+	rtw_sdio_free_irq(rtwdev, sdio_func);
 	rtw_sdio_deinit_tx(rtwdev);
 	rtw_core_deinit(rtwdev);
 	ieee80211_free_hw(hw);

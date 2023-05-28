@@ -635,7 +635,7 @@ static int dw_wdt_drv_probe(struct platform_device *pdev)
 
 	ret = dw_wdt_init_timeouts(dw_wdt, dev);
 	if (ret)
-		goto out_disable_clk;
+		goto out_assert_rst;
 
 	wdd = &dw_wdt->wdd;
 	wdd->ops = &dw_wdt_ops;
@@ -663,14 +663,18 @@ static int dw_wdt_drv_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, dw_wdt);
 
 	watchdog_set_restart_priority(wdd, 128);
+	watchdog_stop_on_reboot(wdd);
 
 	ret = watchdog_register_device(wdd);
 	if (ret)
-		goto out_disable_pclk;
+		goto out_assert_rst;
 
 	dw_wdt_dbgfs_init(dw_wdt);
 
 	return 0;
+
+out_assert_rst:
+	reset_control_assert(dw_wdt->rst);
 
 out_disable_pclk:
 	clk_disable_unprepare(dw_wdt->pclk);

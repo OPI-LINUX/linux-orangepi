@@ -13,7 +13,6 @@
 #include <dt-bindings/reset/sun50i-h6-r-ccu.h>
 #include <dt-bindings/reset/sun8i-de2.h>
 #include <dt-bindings/thermal/thermal.h>
-#include "sun50i-h616-cpu-opp.dtsi"
 
 / {
 	interrupt-parent = <&gic>;

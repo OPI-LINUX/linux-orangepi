@@ -80,10 +80,10 @@ static int rtw_mac_pre_system_cfg(struct rtw_dev *rtwdev)
 		rtw_write32_set(rtwdev, REG_HCI_OPT_CTRL, BIT_USB_SUS_DIS);
 		break;
 	case RTW_HCI_TYPE_SDIO:
-		rtw_write8_clr(rtwdev, REG_SDIO_HSUS_CTRL, BIT_HCI_SUS_REQ);
+		rtw_write8_clr(rtwdev, REG_SDIO_HSUS_CTRL, BIT(0));
 
 		for (retry = 0; retry < RTW_PWR_POLLING_CNT; retry++) {
-			if (rtw_read8(rtwdev, REG_SDIO_HSUS_CTRL) & BIT_HCI_RESUME_RDY)
+			if (rtw_read8(rtwdev, REG_SDIO_HSUS_CTRL) & BIT(1))
 				break;
 
 			usleep_range(10, 50);
@@ -95,11 +95,9 @@ static int rtw_mac_pre_system_cfg(struct rtw_dev *rtwdev)
 		}
 
 		if (rtw_sdio_is_sdio30_supported(rtwdev))
-			rtw_write8_set(rtwdev, REG_HCI_OPT_CTRL + 2,
-				       BIT_SDIO_PAD_E5 >> 16);
+			rtw_write8_set(rtwdev, REG_HCI_OPT_CTRL + 2, BIT(2));
 		else
-			rtw_write8_clr(rtwdev, REG_HCI_OPT_CTRL + 2,
-				       BIT_SDIO_PAD_E5 >> 16);
+			rtw_write8_clr(rtwdev, REG_HCI_OPT_CTRL + 2, BIT(2));
 		break;
 	case RTW_HCI_TYPE_USB:
 		break;
@@ -272,10 +270,9 @@ static int rtw_mac_power_switch(struct rtw_dev *rtwdev, bool pwr_on)
 {
 	const struct rtw_chip_info *chip = rtwdev->chip;
 	const struct rtw_pwr_seq_cmd **pwr_seq;
-	u32 imr = 0;
+	u32 imr;
 	u8 rpwm;
 	bool cur_pwr;
-	int ret;
 
 	if (rtw_chip_wcpu_11ac(rtwdev)) {
 		rpwm = rtw_read8(rtwdev, rtwdev->hci.rpwm_addr);
@@ -298,24 +295,31 @@ static int rtw_mac_power_switch(struct rtw_dev *rtwdev, bool pwr_on)
 	if (pwr_on == cur_pwr)
 		return -EALREADY;
 
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
-		imr = rtw_read32(rtwdev, REG_SDIO_HIMR);
-		rtw_write32(rtwdev, REG_SDIO_HIMR, 0);
-	}
+	/* Always signal power off before power sequence. This way
+	 * read/write functions will take path which works in both
+	 * states. State will change in the middle of the sequence.
+	 */
+	rtw_hci_power_switch(rtwdev, false);
 
-	if (!pwr_on)
-		clear_bit(RTW_FLAG_POWERON, rtwdev->flags);
+	imr = rtw_read32(rtwdev, REG_SDIO_HIMR);
+	rtw_write32(rtwdev, REG_SDIO_HIMR, 0);
 
 	pwr_seq = pwr_on ? chip->pwr_on_seq : chip->pwr_off_seq;
-	ret = rtw_pwr_seq_parser(rtwdev, pwr_seq);
-
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+	if (rtw_pwr_seq_parser(rtwdev, pwr_seq)) {
 		rtw_write32(rtwdev, REG_SDIO_HIMR, imr);
+		return -EINVAL;
+	}
 
-	if (!ret && pwr_on)
+	if (pwr_on)
 		set_bit(RTW_FLAG_POWERON, rtwdev->flags);
+	else
+		clear_bit(RTW_FLAG_POWERON, rtwdev->flags);
 
-	return ret;
+	rtw_hci_power_switch(rtwdev, pwr_on);
+
+	rtw_write32(rtwdev, REG_SDIO_HIMR, imr);
+
+	return 0;
 }
 
 static int __rtw_mac_init_system_cfg(struct rtw_dev *rtwdev)

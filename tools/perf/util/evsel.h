@@ -105,8 +105,6 @@ struct evsel {
 	 * metric fields are similar, but needs more care as they can have
 	 * references to other metric (evsel).
 	 */
-	const char *		metric_expr;
-	const char *		metric_name;
 	struct evsel		**metric_events;
 	struct evsel		*metric_leader;
 
@@ -267,6 +265,11 @@ bool evsel__is_cache_op_valid(u8 type, u8 op);
 static inline bool evsel__is_bpf(struct evsel *evsel)
 {
 	return evsel->bpf_counter_ops != NULL;
+}
+
+static inline bool evsel__is_bperf(struct evsel *evsel)
+{
+	return evsel->bpf_counter_ops != NULL && list_empty(&evsel->bpf_counter_list);
 }
 
 #define EVSEL__MAX_ALIASES 8

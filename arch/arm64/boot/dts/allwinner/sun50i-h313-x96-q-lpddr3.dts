@@ -6,7 +6,7 @@
 /dts-v1/;
 
 #include "sun50i-h616.dtsi"
-
+#include "sun50i-h313-cpu-opp.dtsi"
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/leds/common.h>
@@ -91,25 +91,6 @@
 
 &cpu0 {
 	cpu-supply = <&reg_dcdc2>;
-	operating-points-v2 = <&cpu_opp_table_h313>;
-	status = "okay";
-};
-
-&cpu1 {
-	cpu-supply = <&reg_dcdc2>;
-	operating-points-v2 = <&cpu_opp_table_h313>;
-	status = "okay";
-};
-
-&cpu2 {
-	cpu-supply = <&reg_dcdc2>;
-	operating-points-v2 = <&cpu_opp_table_h313>;
-	status = "okay";
-};
-
-&cpu3 {
-	cpu-supply = <&reg_dcdc2>;
-	operating-points-v2 = <&cpu_opp_table_h313>;
 	status = "okay";
 };
 

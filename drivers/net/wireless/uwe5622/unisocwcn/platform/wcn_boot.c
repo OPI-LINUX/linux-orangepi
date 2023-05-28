@@ -1378,8 +1378,7 @@ static int marlin_registsr_bt_wake(struct device *dev)
 		WCN_ERR("dts node for bt_wake not found");
 		return -EINVAL;
 	}
-	bt_wake_host_gpio = of_get_named_gpio_flags(np, "bt_hostwake", 0,
-		(enum of_gpio_flags *)&config);
+	bt_wake_host_gpio = of_get_named_gpio(np, "bt_hostwake", 0);
 	if (!gpio_is_valid(bt_wake_host_gpio)) {
 		WCN_ERR("bt_hostwake irq is invalid: %d\n",
 			bt_wake_host_gpio);

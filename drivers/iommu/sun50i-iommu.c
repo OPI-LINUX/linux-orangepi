@@ -108,7 +108,6 @@ struct sun50i_iommu {
 
 	struct iommu_domain *domain;
 	struct iommu_group *group;
-	struct kmem_cache *pt_pool;
 };
 
 struct sun50i_iommu_domain {
@@ -525,14 +524,15 @@ static void *sun50i_iommu_alloc_page_table(struct sun50i_iommu *iommu,
 	dma_addr_t pt_dma;
 	u32 *page_table;
 
-	page_table = kmem_cache_zalloc(iommu->pt_pool, gfp);
+	page_table = (u32 *)__get_free_pages(GFP_KERNEL | __GFP_ZERO | GFP_DMA32,
+					     get_order(PT_SIZE));
 	if (!page_table)
 		return ERR_PTR(-ENOMEM);
 
 	pt_dma = dma_map_single(iommu->dev, page_table, PT_SIZE, DMA_TO_DEVICE);
 	if (dma_mapping_error(iommu->dev, pt_dma)) {
 		dev_err(iommu->dev, "Couldn't map L2 Page Table\n");
-		kmem_cache_free(iommu->pt_pool, page_table);
+		free_pages((unsigned long)page_table, get_order(PT_SIZE));
 		return ERR_PTR(-ENOMEM);
 	}
 
@@ -548,7 +548,7 @@ static void sun50i_iommu_free_page_table(struct sun50i_iommu *iommu,
 	phys_addr_t pt_phys = virt_to_phys(page_table);
 
 	dma_unmap_single(iommu->dev, pt_phys, PT_SIZE, DMA_TO_DEVICE);
-	kmem_cache_free(iommu->pt_pool, page_table);
+	free_pages((unsigned long)page_table, get_order(PT_SIZE));
 }
 
 static u32 *sun50i_dte_get_page_table(struct sun50i_iommu_domain *sun50i_domain,
@@ -689,7 +689,7 @@ static struct iommu_domain *sun50i_iommu_domain_alloc(unsigned type)
 	if (!sun50i_domain)
 		return NULL;
 
-	sun50i_domain->dt = (u32 *)__get_free_pages(GFP_KERNEL | __GFP_ZERO,
+	sun50i_domain->dt = (u32 *)__get_free_pages(GFP_KERNEL | __GFP_ZERO | GFP_DMA32,
 						    get_order(DT_SIZE));
 	if (!sun50i_domain->dt)
 		goto err_free_domain;
@@ -844,7 +844,6 @@ static const struct iommu_ops sun50i_iommu_ops = {
 	.probe_device	= sun50i_iommu_probe_device,
 	.default_domain_ops = &(const struct iommu_domain_ops) {
 		.attach_dev	= sun50i_iommu_attach_device,
-		.detach_dev	= sun50i_iommu_detach_device,
 		.flush_iotlb_all = sun50i_iommu_flush_iotlb_all,
 		.iotlb_sync_map = sun50i_iommu_iotlb_sync_map,
 		.iotlb_sync	= sun50i_iommu_iotlb_sync,
@@ -999,18 +998,9 @@ static int sun50i_iommu_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, iommu);
 	iommu->dev = &pdev->dev;
 
-	iommu->pt_pool = kmem_cache_create(dev_name(&pdev->dev),
-					   PT_SIZE, PT_SIZE,
-					   SLAB_HWCACHE_ALIGN,
-					   NULL);
-	if (!iommu->pt_pool)
-		return -ENOMEM;
-
 	iommu->group = iommu_group_alloc();
-	if (IS_ERR(iommu->group)) {
-		ret = PTR_ERR(iommu->group);
-		goto err_free_cache;
-	}
+	if (IS_ERR(iommu->group))
+		return PTR_ERR(iommu->group);
 
 	iommu->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(iommu->base)) {
@@ -1062,9 +1052,6 @@ err_remove_sysfs:
 
 err_free_group:
 	iommu_group_put(iommu->group);
-
-err_free_cache:
-	kmem_cache_destroy(iommu->pt_pool);
 
 	return ret;
 }

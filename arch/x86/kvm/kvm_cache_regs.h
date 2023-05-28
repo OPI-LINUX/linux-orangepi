@@ -4,7 +4,7 @@
 
 #include <linux/kvm_host.h>
 
-#define KVM_POSSIBLE_CR0_GUEST_BITS X86_CR0_TS
+#define KVM_POSSIBLE_CR0_GUEST_BITS	(X86_CR0_TS | X86_CR0_WP)
 #define KVM_POSSIBLE_CR4_GUEST_BITS				  \
 	(X86_CR4_PVI | X86_CR4_DE | X86_CR4_PCE | X86_CR4_OSFXSR  \
 	 | X86_CR4_OSXMMEXCPT | X86_CR4_PGE | X86_CR4_TSD | X86_CR4_FSGSBASE)
@@ -73,6 +73,18 @@ static inline void kvm_register_mark_dirty(struct kvm_vcpu *vcpu,
 {
 	__set_bit(reg, (unsigned long *)&vcpu->arch.regs_avail);
 	__set_bit(reg, (unsigned long *)&vcpu->arch.regs_dirty);
+}
+
+/*
+ * kvm_register_test_and_mark_available() is a special snowflake that uses an
+ * arch bitop directly to avoid the explicit instrumentation that comes with
+ * the generic bitops.  This allows code that cannot be instrumented (noinstr
+ * functions), e.g. the low level VM-Enter/VM-Exit paths, to cache registers.
+ */
+static __always_inline bool kvm_register_test_and_mark_available(struct kvm_vcpu *vcpu,
+								 enum kvm_reg reg)
+{
+	return arch___test_and_set_bit(reg, (unsigned long *)&vcpu->arch.regs_avail);
 }
 
 /*

@@ -172,7 +172,7 @@ config PINCTRL_DA9062
 
 config PINCTRL_DIGICOLOR
 	bool
-	depends on OF && (ARCH_DIGICOLOR || COMPILE_TEST)
+	depends on ARCH_DIGICOLOR || COMPILE_TEST
 	select PINMUX
 	select GENERIC_PINCONF
 
@@ -407,7 +407,7 @@ config PINCTRL_PISTACHIO
 
 config PINCTRL_RK805
 	tristate "Pinctrl and GPIO driver for RK805 PMIC"
-	depends on MFD_RK808
+	depends on MFD_RK8XX
 	select GPIOLIB
 	select PINMUX
 	select GENERIC_PINCONF
