@@ -140,16 +140,6 @@ config USB_DWC3_QCOM
 	  for peripheral mode support.
 	  Say 'Y' or 'M' if you have one such device.
 
-config USB_DWC3_ROCKCHIP_INNO
-	tristate "Rockchip Platforms with INNO PHY"
-	depends on OF && COMMON_CLK && ARCH_ROCKCHIP
-	depends on USB=y || USB=USB_DWC3
-	default USB_DWC3
-	help
-	  Support of USB2/3 functionality in Rockchip platforms
-	  with INNO USB 3.0 PHY IP inside.
-	  say 'Y' or 'M' if you have one such device.
-
 config USB_DWC3_IMX8MP
 	tristate "NXP iMX8MP Platform"
 	depends on OF && COMMON_CLK
@@ -162,11 +152,11 @@ config USB_DWC3_IMX8MP
 
 config USB_DWC3_XILINX
 	tristate "Xilinx Platforms"
-	depends on (ARCH_ZYNQMP || COMPILE_TEST) && OF
+	depends on (ARCH_ZYNQMP || ARCH_VERSAL) && OF
 	default USB_DWC3
 	help
 	  Support Xilinx SoCs with DesignWare Core USB3 IP.
-	  This driver handles ZynqMP SoC operations.
+	  This driver handles both ZynqMP and Versal SoC operations.
 	  Say 'Y' or 'M' if you have one such device.
 
 config USB_DWC3_AM62

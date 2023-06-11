@@ -28,8 +28,6 @@
 #include <drm/drm_drv.h>
 #include <drm/drm_vblank.h>
 
-#include <soc/bcm2835/raspberrypi-firmware.h>
-
 #include "vc4_drv.h"
 #include "vc4_regs.h"
 
@@ -783,7 +781,7 @@ static int vc4_hvs_bind(struct device *dev, struct device *master, void *data)
 	struct vc4_hvs *hvs = NULL;
 	int ret;
 	u32 dispctrl;
-	u32 reg, top;
+	u32 reg;
 
 	hvs = drmm_kzalloc(drm, sizeof(*hvs), GFP_KERNEL);
 	if (!hvs)
@@ -800,35 +798,11 @@ static int vc4_hvs_bind(struct device *dev, struct device *master, void *data)
 	hvs->regset.nregs = ARRAY_SIZE(hvs_regs);
 
 	if (vc4->is_vc5) {
-		struct rpi_firmware *firmware;
-		struct device_node *node;
-		unsigned int max_rate;
-
-		node = rpi_firmware_find_node();
-		if (!node)
-			return -EINVAL;
-
-		firmware = rpi_firmware_get(node);
-		of_node_put(node);
-		if (!firmware)
-			return -EPROBE_DEFER;
-
 		hvs->core_clk = devm_clk_get(&pdev->dev, NULL);
 		if (IS_ERR(hvs->core_clk)) {
 			dev_err(&pdev->dev, "Couldn't get core clock\n");
 			return PTR_ERR(hvs->core_clk);
 		}
-
-		max_rate = rpi_firmware_clk_get_max_rate(firmware,
-							 RPI_FIRMWARE_CORE_CLK_ID);
-		rpi_firmware_put(firmware);
-		if (max_rate >= 550000000)
-			hvs->vc5_hdmi_enable_hdmi_20 = true;
-
-		if (max_rate >= 600000000)
-			hvs->vc5_hdmi_enable_4096by2160 = true;
-
-		hvs->max_core_rate = max_rate;
 
 		ret = clk_prepare_enable(hvs->core_clk);
 		if (ret) {
@@ -944,60 +918,6 @@ static int vc4_hvs_bind(struct device *dev, struct device *master, void *data)
 	dispctrl |= VC4_SET_FIELD(2, SCALER_DISPCTRL_PANIC2);
 
 	HVS_WRITE(SCALER_DISPCTRL, dispctrl);
-
-	/* Recompute Composite Output Buffer (COB) allocations for the displays
-	 */
-	if (!vc4->is_vc5) {
-		/* The COB is 20736 pixels, or just over 10 lines at 2048 wide.
-		 * The bottom 2048 pixels are full 32bpp RGBA (intended for the
-		 * TXP composing RGBA to memory), whilst the remainder are only
-		 * 24bpp RGB.
-		 *
-		 * Assign 3 lines to channels 1 & 2, and just over 4 lines to
-		 * channel 0.
-		 */
-		#define VC4_COB_SIZE		20736
-		#define VC4_COB_LINE_WIDTH	2048
-		#define VC4_COB_NUM_LINES	3
-		reg = 0;
-		top = VC4_COB_LINE_WIDTH * VC4_COB_NUM_LINES;
-		reg |= (top - 1) << 16;
-		HVS_WRITE(SCALER_DISPBASE2, reg);
-		reg = top;
-		top += VC4_COB_LINE_WIDTH * VC4_COB_NUM_LINES;
-		reg |= (top - 1) << 16;
-		HVS_WRITE(SCALER_DISPBASE1, reg);
-		reg = top;
-		top = VC4_COB_SIZE;
-		reg |= (top - 1) << 16;
-		HVS_WRITE(SCALER_DISPBASE0, reg);
-	} else {
-		/* The COB is 44416 pixels, or 10.8 lines at 4096 wide.
-		 * The bottom 4096 pixels are full RGBA (intended for the TXP
-		 * composing RGBA to memory), whilst the remainder are only
-		 * RGB. Addressing is always pixel wide.
-		 *
-		 * Assign 3 lines of 4096 to channels 1 & 2, and just over 4
-		 * lines. to channel 0.
-		 */
-		#define VC5_COB_SIZE		44416
-		#define VC5_COB_LINE_WIDTH	4096
-		#define VC5_COB_NUM_LINES	3
-		reg = 0;
-		top = VC5_COB_LINE_WIDTH * VC5_COB_NUM_LINES;
-		reg |= top << 16;
-		HVS_WRITE(SCALER_DISPBASE2, reg);
-		top += 16;
-		reg = top;
-		top += VC5_COB_LINE_WIDTH * VC5_COB_NUM_LINES;
-		reg |= top << 16;
-		HVS_WRITE(SCALER_DISPBASE1, reg);
-		top += 16;
-		reg = top;
-		top = VC5_COB_SIZE;
-		reg |= top << 16;
-		HVS_WRITE(SCALER_DISPBASE0, reg);
-	}
 
 	ret = devm_request_irq(dev, platform_get_irq(pdev, 0),
 			       vc4_hvs_irq_handler, 0, "vc4 hvs", drm);

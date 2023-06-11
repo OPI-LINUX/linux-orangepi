@@ -323,6 +323,7 @@ static void dp_display_unbind(struct device *dev, struct device *master,
 	kthread_stop(dp->ev_tsk);
 
 	dp_power_client_deinit(dp->power);
+	dp_unregister_audio_driver(dev, dp->audio);
 	dp_aux_unregister(dp->aux);
 	dp->drm_dev = NULL;
 	dp->aux->drm_dev = NULL;
@@ -1600,9 +1601,19 @@ error:
 int msm_dp_modeset_init(struct msm_dp *dp_display, struct drm_device *dev,
 			struct drm_encoder *encoder)
 {
-	struct msm_drm_private *priv = dev->dev_private;
+	struct msm_drm_private *priv;
 	struct dp_display_private *dp_priv;
 	int ret;
+
+	if (WARN_ON(!encoder) || WARN_ON(!dp_display) || WARN_ON(!dev))
+		return -EINVAL;
+
+	priv = dev->dev_private;
+
+	if (priv->num_bridges == ARRAY_SIZE(priv->bridges)) {
+		DRM_DEV_ERROR(dev->dev, "too many bridges\n");
+		return -ENOSPC;
+	}
 
 	dp_display->drm_dev = dev;
 

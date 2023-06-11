@@ -129,11 +129,11 @@ the destination register is unchanged whereas for ``BPF_ALU`` the upper
 
 ``BPF_XOR | BPF_K | BPF_ALU`` means::
 
-  dst_reg = (u32) dst_reg ^ (u32) imm32
+  src_reg = (u32) src_reg ^ (u32) imm32
 
 ``BPF_XOR | BPF_K | BPF_ALU64`` means::
 
-  dst_reg = dst_reg ^ imm32
+  src_reg = src_reg ^ imm32
 
 Also note that the division and modulo operations are unsigned. Thus, for
 ``BPF_ALU``, 'imm' is first interpreted as an unsigned 32-bit value, whereas

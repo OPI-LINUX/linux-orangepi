@@ -36,8 +36,8 @@
 
 #define DEFAULT_TRACER  "function_graph"
 
-static volatile sig_atomic_t workload_exec_errno;
-static volatile sig_atomic_t done;
+static volatile int workload_exec_errno;
+static bool done;
 
 static void sig_handler(int sig __maybe_unused)
 {
@@ -1228,10 +1228,12 @@ int cmd_ftrace(int argc, const char **argv)
 		goto out_delete_filters;
 	}
 
+	/* Make system wide (-a) the default target. */
+	if (!argc && target__none(&ftrace.target))
+		ftrace.target.system_wide = true;
+
 	switch (subcmd) {
 	case PERF_FTRACE_TRACE:
-		if (!argc && target__none(&ftrace.target))
-			ftrace.target.system_wide = true;
 		cmd_func = __cmd_ftrace;
 		break;
 	case PERF_FTRACE_LATENCY:

@@ -782,6 +782,7 @@ static int tegra_xusb_add_usb2_port(struct tegra_xusb_padctl *padctl,
 	usb2->base.lane = usb2->base.ops->map(&usb2->base);
 	if (IS_ERR(usb2->base.lane)) {
 		err = PTR_ERR(usb2->base.lane);
+		tegra_xusb_port_unregister(&usb2->base);
 		goto out;
 	}
 
@@ -848,6 +849,7 @@ static int tegra_xusb_add_ulpi_port(struct tegra_xusb_padctl *padctl,
 	ulpi->base.lane = ulpi->base.ops->map(&ulpi->base);
 	if (IS_ERR(ulpi->base.lane)) {
 		err = PTR_ERR(ulpi->base.lane);
+		tegra_xusb_port_unregister(&ulpi->base);
 		goto out;
 	}
 
@@ -954,7 +956,8 @@ static int tegra_xusb_usb3_port_parse_dt(struct tegra_xusb_usb3_port *usb3)
 			return -EINVAL;
 	}
 
-	return 0;
+	usb3->supply = regulator_get(&port->dev, "vbus");
+	return PTR_ERR_OR_ZERO(usb3->supply);
 }
 
 static int tegra_xusb_add_usb3_port(struct tegra_xusb_padctl *padctl,
@@ -1009,6 +1012,13 @@ void tegra_xusb_usb3_port_release(struct tegra_xusb_port *port)
 	struct tegra_xusb_usb3_port *usb3 = to_usb3_port(port);
 
 	kfree(usb3);
+}
+
+void tegra_xusb_usb3_port_remove(struct tegra_xusb_port *port)
+{
+	struct tegra_xusb_usb3_port *usb3 = to_usb3_port(port);
+
+	regulator_put(usb3->supply);
 }
 
 static void __tegra_xusb_remove_ports(struct tegra_xusb_padctl *padctl)

@@ -78,8 +78,8 @@ static inline struct cedrus_ctx *cedrus_file2ctx(struct file *file)
 	return container_of(file->private_data, struct cedrus_ctx, fh);
 }
 
-static struct cedrus_format *cedrus_find_format(struct cedrus_ctx *ctx,
-						u32 pixelformat, u32 directions)
+static struct cedrus_format *cedrus_find_format(u32 pixelformat, u32 directions,
+						unsigned int capabilities)
 {
 	struct cedrus_format *first_valid_fmt = NULL;
 	struct cedrus_format *fmt;
@@ -88,7 +88,7 @@ static struct cedrus_format *cedrus_find_format(struct cedrus_ctx *ctx,
 	for (i = 0; i < CEDRUS_FORMATS_COUNT; i++) {
 		fmt = &cedrus_formats[i];
 
-		if (!cedrus_is_capable(ctx, fmt->capabilities) ||
+		if ((fmt->capabilities & capabilities) != fmt->capabilities ||
 		    !(fmt->directions & directions))
 			continue;
 
@@ -244,9 +244,10 @@ static int cedrus_g_fmt_vid_out(struct file *file, void *priv,
 static int cedrus_try_fmt_vid_cap_p(struct cedrus_ctx *ctx,
 				    struct v4l2_pix_format *pix_fmt)
 {
+	struct cedrus_dev *dev = ctx->dev;
 	struct cedrus_format *fmt =
-		cedrus_find_format(ctx, pix_fmt->pixelformat,
-				   CEDRUS_DECODE_DST);
+		cedrus_find_format(pix_fmt->pixelformat, CEDRUS_DECODE_DST,
+				   dev->capabilities);
 
 	if (!fmt)
 		return -EINVAL;
@@ -272,9 +273,10 @@ static int cedrus_try_fmt_vid_cap(struct file *file, void *priv,
 static int cedrus_try_fmt_vid_out_p(struct cedrus_ctx *ctx,
 				    struct v4l2_pix_format *pix_fmt)
 {
+	struct cedrus_dev *dev = ctx->dev;
 	struct cedrus_format *fmt =
-		cedrus_find_format(ctx, pix_fmt->pixelformat,
-				   CEDRUS_DECODE_SRC);
+		cedrus_find_format(pix_fmt->pixelformat, CEDRUS_DECODE_SRC,
+				   dev->capabilities);
 
 	if (!fmt)
 		return -EINVAL;
@@ -572,7 +574,7 @@ static void cedrus_buf_request_complete(struct vb2_buffer *vb)
 	v4l2_ctrl_request_complete(vb->req_obj.req, &ctx->hdl);
 }
 
-static const struct vb2_ops cedrus_qops = {
+static struct vb2_ops cedrus_qops = {
 	.queue_setup		= cedrus_queue_setup,
 	.buf_prepare		= cedrus_buf_prepare,
 	.buf_queue		= cedrus_buf_queue,

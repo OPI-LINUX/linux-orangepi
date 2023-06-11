@@ -431,14 +431,10 @@ static int hdmi_codec_startup(struct snd_pcm_substream *substream,
 {
 	struct hdmi_codec_priv *hcp = snd_soc_dai_get_drvdata(dai);
 	bool tx = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
-	bool has_capture = !hcp->hcd.no_i2s_capture;
-	bool has_playback = !hcp->hcd.no_i2s_playback;
 	int ret = 0, aw_quirk = 0;
 
-	if (!((has_playback && tx) || (has_capture && !tx)))
-		return 0;
-
 	aw_quirk = check_h616_quirk();
+
 	if (aw_quirk)
 		printk("hdmi_codec_startup: using aw-hdmi-codec-quirk for H616\n");
 	else {
@@ -481,15 +477,10 @@ static void hdmi_codec_shutdown(struct snd_pcm_substream *substream,
 				struct snd_soc_dai *dai)
 {
 	struct hdmi_codec_priv *hcp = snd_soc_dai_get_drvdata(dai);
-	bool tx = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
-	bool has_capture = !hcp->hcd.no_i2s_capture;
-	bool has_playback = !hcp->hcd.no_i2s_playback;
 	int aw_quirk = 0;
 
-	if (!((has_playback && tx) || (has_capture && !tx)))
-		return;
-
 	aw_quirk = check_h616_quirk();
+
 	if (aw_quirk)
 		printk("hdmi_codec_shutdown: using aw-hdmi-codec-quirk for H616\n");
 	else {
@@ -841,19 +832,12 @@ static int hdmi_dai_probe(struct snd_soc_dai *dai)
 			.source = "RX",
 		},
 	};
-	int ret, i;
+	int ret;
 
 	dapm = snd_soc_component_get_dapm(dai->component);
-
-	/* One of the directions might be omitted for unidirectional DAIs */
-	for (i = 0; i < ARRAY_SIZE(route); i++) {
-		if (!route[i].source || !route[i].sink)
-			continue;
-
-		ret = snd_soc_dapm_add_routes(dapm, &route[i], 1);
-		if (ret)
-			return ret;
-	}
+	ret = snd_soc_dapm_add_routes(dapm, route, 2);
+	if (ret)
+		return ret;
 
 	daifmt = devm_kzalloc(dai->dev, sizeof(*daifmt), GFP_KERNEL);
 	if (!daifmt)
@@ -1041,24 +1025,11 @@ static int hdmi_codec_probe(struct platform_device *pdev)
 	if (hcd->i2s) {
 		daidrv[i] = hdmi_i2s_dai;
 		daidrv[i].playback.channels_max = hcd->max_i2s_channels;
-		if (hcd->no_i2s_playback)
-			memset(&daidrv[i].playback, 0,
-			       sizeof(daidrv[i].playback));
-		if (hcd->no_i2s_capture)
-			memset(&daidrv[i].capture, 0,
-			       sizeof(daidrv[i].capture));
 		i++;
 	}
 
-	if (hcd->spdif) {
+	if (hcd->spdif)
 		daidrv[i] = hdmi_spdif_dai;
-		if (hcd->no_spdif_playback)
-			memset(&daidrv[i].playback, 0,
-			       sizeof(daidrv[i].playback));
-		if (hcd->no_spdif_capture)
-			memset(&daidrv[i].capture, 0,
-			       sizeof(daidrv[i].capture));
-	}
 
 	dev_set_drvdata(dev, hcp);
 

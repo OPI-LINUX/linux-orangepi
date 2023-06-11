@@ -1026,80 +1026,40 @@ static int rkvdec_h264_adjust_fmt(struct rkvdec_ctx *ctx,
 	return 0;
 }
 
-/*
- * Convert some fields from the SPS structure into human readable attributes.
- */
-static int rkvdec_h264_get_sps_attributes(struct rkvdec_ctx *ctx, void *sps,
-					  struct sps_attributes *attributes)
+static int rkvdec_h264_validate_sps(struct rkvdec_ctx *ctx,
+				    const struct v4l2_ctrl_h264_sps *sps)
 {
-	struct v4l2_ctrl_h264_sps *h264_sps = sps;
-	unsigned int width = (h264_sps->pic_width_in_mbs_minus1 + 1) * 16;
-	unsigned int height = (h264_sps->pic_height_in_map_units_minus1 + 1) * 16;
-	/*
-	 * When frame_mbs_only_flag is not set, this is field height,
-	 * which is half the final height (see (7-18) in the
-	 * specification)
-	 */
-	if (!(h264_sps->flags & V4L2_H264_SPS_FLAG_FRAME_MBS_ONLY))
-		height *= 2;
-
-	attributes->width = width;
-	attributes->height = height;
-	attributes->luma_bitdepth = h264_sps->bit_depth_luma_minus8 + 8;
-	attributes->chroma_bitdepth = h264_sps->bit_depth_chroma_minus8 + 8;
-	switch (h264_sps->chroma_format_idc) {
-	case 0:
-		attributes->subsampling = 400;
-		break;
-	case 1:
-		attributes->subsampling = 420;
-		break;
-	case 2:
-		attributes->subsampling = 422;
-		break;
-	case 3:
-		attributes->subsampling = 444;
-		break;
-	};
-	return 0;
-}
-
-static int rkvdec_h264_validate_sps(struct rkvdec_ctx *ctx, void *sps,
-				    struct v4l2_pix_format_mplane *pix_mp)
-{
-	struct sps_attributes attributes = {0};
-
-	rkvdec_h264_get_sps_attributes(ctx, sps, &attributes);
+	unsigned int width, height;
 
 	/*
 	 * TODO: The hardware supports 10-bit and 4:2:2 profiles,
 	 * but it's currently broken in the driver.
 	 * Reject them for now, until it's fixed.
 	 */
-	if (attributes.subsampling > 420) {
-		dev_err(ctx->dev->dev,
-			"Only 4:0:0 and 4:2:0 subsampling schemes are supported, got: %d\n",
-			attributes.subsampling);
+	if (sps->chroma_format_idc > 1)
+		/* Only 4:0:0 and 4:2:0 are supported */
 		return -EINVAL;
-	}
-	if (attributes.luma_bitdepth != attributes.chroma_bitdepth) {
-		dev_err(ctx->dev->dev,
-			"Luma and chroma bit depth mismatch, luma %d, chroma %d\n",
-			attributes.luma_bitdepth, attributes.chroma_bitdepth);
+	if (sps->bit_depth_luma_minus8 != sps->bit_depth_chroma_minus8)
+		/* Luma and chroma bit depth mismatch */
 		return -EINVAL;
-	}
-	if (attributes.luma_bitdepth != 8) {
-		dev_err(ctx->dev->dev, "Only 8-bit H264 formats supported, SPS %d\n",
-			attributes.luma_bitdepth);
+	if (sps->bit_depth_luma_minus8 != 0)
+		/* Only 8-bit is supported */
 		return -EINVAL;
-	}
 
-	if (attributes.width > pix_mp->width || attributes.height > pix_mp->height) {
-		dev_err(ctx->dev->dev,
-			"Incompatible SPS dimension, SPS %dx%d, Pixel format %dx%d.",
-			attributes.width, attributes.height, pix_mp->width, pix_mp->height);
+	width = (sps->pic_width_in_mbs_minus1 + 1) * 16;
+	height = (sps->pic_height_in_map_units_minus1 + 1) * 16;
+
+	/*
+	 * When frame_mbs_only_flag is not set, this is field height,
+	 * which is half the final height (see (7-18) in the
+	 * specification)
+	 */
+	if (!(sps->flags & V4L2_H264_SPS_FLAG_FRAME_MBS_ONLY))
+		height *= 2;
+
+	if (width > ctx->coded_fmt.fmt.pix_mp.width ||
+	    height > ctx->coded_fmt.fmt.pix_mp.height)
 		return -EINVAL;
-	}
 
 	return 0;
 }
@@ -1117,9 +1077,8 @@ static int rkvdec_h264_start(struct rkvdec_ctx *ctx)
 	if (!ctrl)
 		return -EINVAL;
 
-	ret = rkvdec_h264_validate_sps(ctx, ctrl->p_new.p_h264_sps,
-				       &ctx->coded_fmt.fmt.pix_mp);
-	if (ret < 0)
+	ret = rkvdec_h264_validate_sps(ctx, ctrl->p_new.p_h264_sps);
+	if (ret)
 		return ret;
 
 	h264_ctx = kzalloc(sizeof(*h264_ctx), GFP_KERNEL);
@@ -1216,21 +1175,10 @@ static int rkvdec_h264_run(struct rkvdec_ctx *ctx)
 	return 0;
 }
 
-static u32 rkvdec_h264_valid_fmt(struct rkvdec_ctx *ctx)
-{
-	/*
-	 * Only 8 bit 4:0:0 and 4:2:0 formats supported for now.
-	 * The SPS is validated at a different function thus we can assume that
-	 * it is correct.
-	 */
-	return V4L2_PIX_FMT_NV12;
-}
-
 static int rkvdec_h264_try_ctrl(struct rkvdec_ctx *ctx, struct v4l2_ctrl *ctrl)
 {
 	if (ctrl->id == V4L2_CID_STATELESS_H264_SPS)
-		return rkvdec_h264_validate_sps(ctx, ctrl->p_new.p_h264_sps,
-						&ctx->coded_fmt.fmt.pix_mp);
+		return rkvdec_h264_validate_sps(ctx, ctrl->p_new.p_h264_sps);
 
 	return 0;
 }
@@ -1241,7 +1189,4 @@ const struct rkvdec_coded_fmt_ops rkvdec_h264_fmt_ops = {
 	.stop = rkvdec_h264_stop,
 	.run = rkvdec_h264_run,
 	.try_ctrl = rkvdec_h264_try_ctrl,
-	.valid_fmt = rkvdec_h264_valid_fmt,
-	.sps_check = rkvdec_h264_validate_sps,
-	.get_sps_attributes = rkvdec_h264_get_sps_attributes,
 };

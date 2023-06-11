@@ -27,7 +27,6 @@
 #include <linux/dmi.h>
 #endif
 #include <linux/acpi_agdi.h>
-#include <linux/acpi_apmt.h>
 #include <linux/acpi_iort.h>
 #include <linux/acpi_viot.h>
 #include <linux/pci.h>
@@ -324,8 +323,6 @@ static void acpi_bus_osc_negotiate_platform_control(void)
 	capbuf[OSC_SUPPORT_DWORD] |= OSC_SB_PCLPI_SUPPORT;
 	if (IS_ENABLED(CONFIG_ACPI_PRMT))
 		capbuf[OSC_SUPPORT_DWORD] |= OSC_SB_PRM_SUPPORT;
-	if (IS_ENABLED(CONFIG_ACPI_FFH))
-		capbuf[OSC_SUPPORT_DWORD] |= OSC_SB_FFH_OPR_SUPPORT;
 
 #ifdef CONFIG_ARM64
 	capbuf[OSC_SUPPORT_DWORD] |= OSC_SB_GENERIC_INITIATOR_SUPPORT;
@@ -589,6 +586,7 @@ static void acpi_device_remove_notify_handler(struct acpi_device *device,
 		acpi_remove_notify_handler(device->handle, type,
 					   acpi_notify_device);
 	}
+	acpi_os_wait_events_complete();
 }
 
 /* Handle events targeting \_SB device (at present only graceful shutdown) */
@@ -1402,7 +1400,6 @@ static int __init acpi_init(void)
 		disable_acpi();
 		return result;
 	}
-	acpi_init_ffh();
 
 	pci_mmcfg_late_init();
 	acpi_iort_init();
@@ -1418,7 +1415,6 @@ static int __init acpi_init(void)
 	acpi_setup_sb_notify_handler();
 	acpi_viot_init();
 	acpi_agdi_init();
-	acpi_apmt_init();
 	return 0;
 }
 

@@ -31,6 +31,8 @@
 #define   CXL_DVSEC_RANGE_BASE_LOW(i)	(0x24 + (i * 0x10))
 #define     CXL_DVSEC_MEM_BASE_LOW_MASK	GENMASK(31, 28)
 
+#define CXL_DVSEC_RANGE_MAX		2
+
 /* CXL 2.0 8.1.4: Non-CXL Function Map DVSEC */
 #define CXL_DVSEC_FUNCTION_MAP					2
 
@@ -61,6 +63,15 @@ enum cxl_regloc_type {
 	CXL_REGLOC_RBI_MEMDEV,
 	CXL_REGLOC_RBI_TYPES
 };
+
+static inline resource_size_t cxl_regmap_to_base(struct pci_dev *pdev,
+						 struct cxl_register_map *map)
+{
+	if (map->block_offset == U64_MAX)
+		return CXL_RESOURCE_NONE;
+
+	return pci_resource_start(pdev, map->barno) + map->block_offset;
+}
 
 struct cdat_header {
 	__le32 length;

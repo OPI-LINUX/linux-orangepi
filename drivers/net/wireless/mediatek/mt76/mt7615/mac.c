@@ -107,9 +107,9 @@ static struct mt76_wcid *mt7615_rx_get_wcid(struct mt7615_dev *dev,
 	return &sta->vif->sta.wcid;
 }
 
-void mt7615_mac_reset_counters(struct mt7615_phy *phy)
+void mt7615_mac_reset_counters(struct mt7615_dev *dev)
 {
-	struct mt7615_dev *dev = phy->dev;
+	struct mt76_phy *mphy_ext = dev->mt76.phys[MT_BAND1];
 	int i;
 
 	for (i = 0; i < 4; i++) {
@@ -117,8 +117,10 @@ void mt7615_mac_reset_counters(struct mt7615_phy *phy)
 		mt76_rr(dev, MT_TX_AGG_CNT(1, i));
 	}
 
-	memset(phy->mt76->aggr_stats, 0, sizeof(phy->mt76->aggr_stats));
-	phy->mt76->survey_time = ktime_get_boottime();
+	memset(dev->mt76.aggr_stats, 0, sizeof(dev->mt76.aggr_stats));
+	dev->mt76.phy.survey_time = ktime_get_boottime();
+	if (mphy_ext)
+		mphy_ext->survey_time = ktime_get_boottime();
 
 	/* reset airtime counters */
 	mt76_rr(dev, MT_MIB_SDR9(0));
@@ -1175,21 +1177,6 @@ void mt7615_mac_set_rates(struct mt7615_phy *phy, struct mt7615_sta *sta,
 }
 EXPORT_SYMBOL_GPL(mt7615_mac_set_rates);
 
-void mt7615_mac_enable_rtscts(struct mt7615_dev *dev,
-			      struct ieee80211_vif *vif, bool enable)
-{
-	struct mt7615_vif *mvif = (struct mt7615_vif *)vif->drv_priv;
-	u32 addr;
-
-	addr = mt7615_mac_wtbl_addr(dev, mvif->sta.wcid.idx) + 3 * 4;
-
-	if (enable)
-		mt76_set(dev, addr, MT_WTBL_W3_RTS);
-	else
-		mt76_clear(dev, addr, MT_WTBL_W3_RTS);
-}
-EXPORT_SYMBOL_GPL(mt7615_mac_enable_rtscts);
-
 static int
 mt7615_mac_wtbl_update_key(struct mt7615_dev *dev, struct mt76_wcid *wcid,
 			   struct ieee80211_key_conf *key,
@@ -1530,8 +1517,11 @@ static void mt7615_mac_add_txs(struct mt7615_dev *dev, void *data)
 	if (wcid->phy_idx && dev->mt76.phys[MT_BAND1])
 		mphy = dev->mt76.phys[MT_BAND1];
 
-	if (mt7615_fill_txs(dev, msta, &info, txs_data))
+	if (mt7615_fill_txs(dev, msta, &info, txs_data)) {
+		spin_lock_bh(&dev->mt76.rx_lock);
 		ieee80211_tx_status_noskb(mphy->hw, sta, &info);
+		spin_unlock_bh(&dev->mt76.rx_lock);
+	}
 
 out:
 	rcu_read_unlock();
@@ -1638,7 +1628,7 @@ bool mt7615_rx_check(struct mt76_dev *mdev, void *data, int len)
 EXPORT_SYMBOL_GPL(mt7615_rx_check);
 
 void mt7615_queue_rx_skb(struct mt76_dev *mdev, enum mt76_rxq_id q,
-			 struct sk_buff *skb, u32 *info)
+			 struct sk_buff *skb)
 {
 	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
 	__le32 *rxd = (__le32 *)skb->data;
@@ -1984,7 +1974,7 @@ mt7615_mac_update_mib_stats(struct mt7615_phy *phy)
 	struct mt7615_dev *dev = phy->dev;
 	struct mib_stats *mib = &phy->mib;
 	bool ext_phy = phy != &dev->phy;
-	int i, aggr = 0;
+	int i, aggr;
 	u32 val, val2;
 
 	mib->fcs_err_cnt += mt76_get_field(dev, MT_MIB_SDR3(ext_phy),
@@ -1998,6 +1988,7 @@ mt7615_mac_update_mib_stats(struct mt7615_phy *phy)
 		mib->aggr_per = 1000 * (val - val2) / val;
 	}
 
+	aggr = ext_phy ? ARRAY_SIZE(dev->mt76.aggr_stats) / 2 : 0;
 	for (i = 0; i < 4; i++) {
 		val = mt76_rr(dev, MT_MIB_MB_SDR1(ext_phy, i));
 		mib->ba_miss_cnt += FIELD_GET(MT_MIB_BA_MISS_COUNT_MASK, val);
@@ -2010,8 +2001,8 @@ mt7615_mac_update_mib_stats(struct mt7615_phy *phy)
 						  val);
 
 		val = mt76_rr(dev, MT_TX_AGG_CNT(ext_phy, i));
-		phy->mt76->aggr_stats[aggr++] += val & 0xffff;
-		phy->mt76->aggr_stats[aggr++] += val >> 16;
+		dev->mt76.aggr_stats[aggr++] += val & 0xffff;
+		dev->mt76.aggr_stats[aggr++] += val >> 16;
 	}
 }
 
@@ -2352,7 +2343,7 @@ void mt7615_coredump_work(struct work_struct *work)
 			break;
 
 		skb_pull(skb, sizeof(struct mt7615_mcu_rxd));
-		if (data + skb->len - dump > MT76_CONNAC_COREDUMP_SZ) {
+		if (!dump || data + skb->len - dump > MT76_CONNAC_COREDUMP_SZ) {
 			dev_kfree_skb(skb);
 			continue;
 		}
@@ -2362,6 +2353,8 @@ void mt7615_coredump_work(struct work_struct *work)
 
 		dev_kfree_skb(skb);
 	}
-	dev_coredumpv(dev->mt76.dev, dump, MT76_CONNAC_COREDUMP_SZ,
-		      GFP_KERNEL);
+
+	if (dump)
+		dev_coredumpv(dev->mt76.dev, dump, MT76_CONNAC_COREDUMP_SZ,
+			      GFP_KERNEL);
 }

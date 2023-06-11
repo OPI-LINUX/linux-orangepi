@@ -993,8 +993,9 @@ isert_rx_login_req(struct isert_conn *isert_conn)
 		 * login request PDU.
 		 */
 		login->leading_connection = (!login_req->tsih) ? 1 : 0;
-		login->current_stage = ISCSI_LOGIN_CURRENT_STAGE(
-				login_req->flags);
+		login->current_stage =
+			(login_req->flags & ISCSI_FLAG_LOGIN_CURRENT_STAGE_MASK)
+			 >> 2;
 		login->version_min	= login_req->min_version;
 		login->version_max	= login_req->max_version;
 		memcpy(login->isid, login_req->isid, 6);
@@ -2506,8 +2507,8 @@ isert_wait4cmds(struct iscsit_conn *conn)
 	isert_info("iscsit_conn %p\n", conn);
 
 	if (conn->sess) {
-		target_stop_session(conn->sess->se_sess);
-		target_wait_for_sess_cmds(conn->sess->se_sess);
+		target_stop_cmd_counter(conn->cmd_cnt);
+		target_wait_for_cmds(conn->cmd_cnt);
 	}
 }
 

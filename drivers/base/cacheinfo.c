@@ -38,11 +38,10 @@ static inline bool cache_leaves_are_shared(struct cacheinfo *this_leaf,
 {
 	/*
 	 * For non DT/ACPI systems, assume unique level 1 caches,
-	 * system-wide shared caches for all other levels. This will be used
-	 * only if arch specific code has not populated shared_cpu_map
+	 * system-wide shared caches for all other levels.
 	 */
 	if (!(IS_ENABLED(CONFIG_OF) || IS_ENABLED(CONFIG_ACPI)))
-		return !(this_leaf->level == 1);
+		return (this_leaf->level != 1) && (sib_leaf->level != 1);
 
 	if ((sib_leaf->attributes & CACHE_ID) &&
 	    (this_leaf->attributes & CACHE_ID))
@@ -196,7 +195,7 @@ static void cache_of_set_props(struct cacheinfo *this_leaf,
 
 static int cache_setup_of_node(unsigned int cpu)
 {
-	struct device_node *np, *prev;
+	struct device_node *np;
 	struct cacheinfo *this_leaf;
 	unsigned int index = 0;
 
@@ -206,23 +205,18 @@ static int cache_setup_of_node(unsigned int cpu)
 		return -ENOENT;
 	}
 
-	prev = np;
-
 	while (index < cache_leaves(cpu)) {
 		this_leaf = per_cpu_cacheinfo_idx(cpu, index);
-		if (this_leaf->level != 1) {
+		if (this_leaf->level != 1)
 			np = of_find_next_cache_node(np);
-			of_node_put(prev);
-			prev = np;
-			if (!np)
-				break;
-		}
+		else
+			np = of_node_get(np);/* cpu node itself */
+		if (!np)
+			break;
 		cache_of_set_props(this_leaf, np);
 		this_leaf->fw_token = np;
 		index++;
 	}
-
-	of_node_put(np);
 
 	if (index != cache_leaves(cpu)) /* not all OF nodes populated */
 		return -ENOENT;
@@ -324,6 +318,8 @@ static void cache_shared_cpu_map_remove(unsigned int cpu)
 				}
 			}
 		}
+		if (of_have_populated_dt())
+			of_node_put(this_leaf->fw_token);
 	}
 }
 

@@ -51,6 +51,7 @@
 
 #include "capabilities.h"
 #include "cpuid.h"
+#include "evmcs.h"
 #include "hyperv.h"
 #include "kvm_onhyperv.h"
 #include "irq.h"
@@ -65,7 +66,6 @@
 #include "vmcs12.h"
 #include "vmx.h"
 #include "x86.h"
-#include "smm.h"
 
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
@@ -526,7 +526,7 @@ static unsigned long host_idt_base;
 static bool __read_mostly enlightened_vmcs = true;
 module_param(enlightened_vmcs, bool, 0444);
 
-static int hv_enable_l2_tlb_flush(struct kvm_vcpu *vcpu)
+static int hv_enable_direct_tlbflush(struct kvm_vcpu *vcpu)
 {
 	struct hv_enlightened_vmcs *evmcs;
 	struct hv_partition_assist_pg **p_hv_pa_pg =
@@ -885,7 +885,7 @@ unsigned int __vmx_vcpu_run_flags(struct vcpu_vmx *vmx)
 	 * to change it directly without causing a vmexit.  In that case read
 	 * it after vmexit and store it in vmx->spec_ctrl.
 	 */
-	if (!msr_write_intercepted(vmx, MSR_IA32_SPEC_CTRL))
+	if (unlikely(!msr_write_intercepted(vmx, MSR_IA32_SPEC_CTRL)))
 		flags |= VMX_RUN_SAVE_SPEC_CTRL;
 
 	return flags;
@@ -1863,42 +1863,12 @@ bool nested_vmx_allowed(struct kvm_vcpu *vcpu)
 	return nested && guest_cpuid_has(vcpu, X86_FEATURE_VMX);
 }
 
-/*
- * Userspace is allowed to set any supported IA32_FEATURE_CONTROL regardless of
- * guest CPUID.  Note, KVM allows userspace to set "VMX in SMX" to maintain
- * backwards compatibility even though KVM doesn't support emulating SMX.  And
- * because userspace set "VMX in SMX", the guest must also be allowed to set it,
- * e.g. if the MSR is left unlocked and the guest does a RMW operation.
- */
-#define KVM_SUPPORTED_FEATURE_CONTROL  (FEAT_CTL_LOCKED			 | \
-					FEAT_CTL_VMX_ENABLED_INSIDE_SMX	 | \
-					FEAT_CTL_VMX_ENABLED_OUTSIDE_SMX | \
-					FEAT_CTL_SGX_LC_ENABLED		 | \
-					FEAT_CTL_SGX_ENABLED		 | \
-					FEAT_CTL_LMCE_ENABLED)
-
-static inline bool is_vmx_feature_control_msr_valid(struct vcpu_vmx *vmx,
-						    struct msr_data *msr)
+static inline bool vmx_feature_control_msr_valid(struct kvm_vcpu *vcpu,
+						 uint64_t val)
 {
-	uint64_t valid_bits;
+	uint64_t valid_bits = to_vmx(vcpu)->msr_ia32_feature_control_valid_bits;
 
-	/*
-	 * Ensure KVM_SUPPORTED_FEATURE_CONTROL is updated when new bits are
-	 * exposed to the guest.
-	 */
-	WARN_ON_ONCE(vmx->msr_ia32_feature_control_valid_bits &
-		     ~KVM_SUPPORTED_FEATURE_CONTROL);
-
-	if (!msr->host_initiated &&
-	    (vmx->msr_ia32_feature_control & FEAT_CTL_LOCKED))
-		return false;
-
-	if (msr->host_initiated)
-		valid_bits = KVM_SUPPORTED_FEATURE_CONTROL;
-	else
-		valid_bits = vmx->msr_ia32_feature_control_valid_bits;
-
-	return !(msr->data & ~valid_bits);
+	return !(val & ~valid_bits);
 }
 
 static int vmx_get_msr_feature(struct kvm_msr_entry *msr)
@@ -1908,6 +1878,9 @@ static int vmx_get_msr_feature(struct kvm_msr_entry *msr)
 		if (!nested)
 			return 1;
 		return vmx_get_vmx_msr(&vmcs_config.nested, msr->index, &msr->data);
+	case MSR_IA32_PERF_CAPABILITIES:
+		msr->data = kvm_caps.supported_perf_cap;
+		return 0;
 	default:
 		return KVM_MSR_RET_INVALID;
 	}
@@ -2297,9 +2270,10 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		vcpu->arch.mcg_ext_ctl = data;
 		break;
 	case MSR_IA32_FEAT_CTL:
-		if (!is_vmx_feature_control_msr_valid(vmx, msr_info))
+		if (!vmx_feature_control_msr_valid(vcpu, data) ||
+		    (to_vmx(vcpu)->msr_ia32_feature_control &
+		     FEAT_CTL_LOCKED && !msr_info->host_initiated))
 			return 1;
-
 		vmx->msr_ia32_feature_control = data;
 		if (msr_info->host_initiated && data == 0)
 			vmx_leave_nested(vcpu);
@@ -4490,13 +4464,6 @@ vmx_adjust_secondary_exec_control(struct vcpu_vmx *vmx, u32 *exec_control,
 	 * controls for features that are/aren't exposed to the guest.
 	 */
 	if (nested) {
-		/*
-		 * All features that can be added or removed to VMX MSRs must
-		 * be supported in the first place for nested virtualization.
-		 */
-		if (WARN_ON_ONCE(!(vmcs_config.nested.secondary_ctls_high & control)))
-			enabled = false;
-
 		if (enabled)
 			vmx->nested.msrs.secondary_ctls_high |= control;
 		else
@@ -4728,7 +4695,7 @@ static void init_vmcs(struct vcpu_vmx *vmx)
 	/* 22.2.1, 20.8.1 */
 	vm_entry_controls_set(vmx, vmx_vmentry_ctrl());
 
-	vmx->vcpu.arch.cr0_guest_owned_bits = KVM_POSSIBLE_CR0_GUEST_BITS;
+	vmx->vcpu.arch.cr0_guest_owned_bits = vmx_l1_guest_owned_cr0_bits();
 	vmcs_writel(CR0_GUEST_HOST_MASK, ~vmx->vcpu.arch.cr0_guest_owned_bits);
 
 	set_cr4_guest_host_mask(vmx);
@@ -5450,7 +5417,7 @@ static int handle_cr(struct kvm_vcpu *vcpu)
 		break;
 	case 3: /* lmsw */
 		val = (exit_qualification >> LMSW_SOURCE_DATA_SHIFT) & 0x0f;
-		trace_kvm_cr_write(0, (kvm_read_cr0(vcpu) & ~0xful) | val);
+		trace_kvm_cr_write(0, (kvm_read_cr0_bits(vcpu, ~0xful) | val));
 		kvm_lmsw(vcpu, val);
 
 		return kvm_skip_emulated_instruction(vcpu);
@@ -6910,8 +6877,6 @@ static bool vmx_has_emulated_msr(struct kvm *kvm, u32 index)
 {
 	switch (index) {
 	case MSR_IA32_SMBASE:
-		if (!IS_ENABLED(CONFIG_KVM_SMM))
-			return false;
 		/*
 		 * We cannot do SMM unless we can run the guest in big
 		 * real mode.
@@ -7531,7 +7496,7 @@ static u8 vmx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio)
 	if (!kvm_arch_has_noncoherent_dma(vcpu->kvm))
 		return (MTRR_TYPE_WRBACK << VMX_EPT_MT_EPTE_SHIFT) | VMX_EPT_IPAT_BIT;
 
-	if (kvm_read_cr0(vcpu) & X86_CR0_CD) {
+	if (kvm_read_cr0_bits(vcpu, X86_CR0_CD)) {
 		if (kvm_check_has_quirk(vcpu->kvm, KVM_X86_QUIRK_CD_NW_CLEARED))
 			cache = MTRR_TYPE_WRBACK;
 		else
@@ -7749,9 +7714,11 @@ static u64 vmx_get_perf_capabilities(void)
 	if (boot_cpu_has(X86_FEATURE_PDCM))
 		rdmsrl(MSR_IA32_PERF_CAPABILITIES, host_perf_cap);
 
-	x86_perf_get_lbr(&lbr);
-	if (lbr.nr)
-		perf_cap |= host_perf_cap & PMU_CAP_LBR_FMT;
+	if (!cpu_feature_enabled(X86_FEATURE_ARCH_LBR)) {
+		x86_perf_get_lbr(&lbr);
+		if (lbr.nr)
+			perf_cap |= host_perf_cap & PMU_CAP_LBR_FMT;
+	}
 
 	if (vmx_pebs_supported()) {
 		perf_cap |= host_perf_cap & PERF_CAP_PEBS_MASK;
@@ -7891,6 +7858,21 @@ static int vmx_check_intercept(struct kvm_vcpu *vcpu,
 		/* FIXME: produce nested vmexit and return X86EMUL_INTERCEPTED.  */
 		break;
 
+	case x86_intercept_pause:
+		/*
+		 * PAUSE is a single-byte NOP with a REPE prefix, i.e. collides
+		 * with vanilla NOPs in the emulator.  Apply the interception
+		 * check only to actual PAUSE instructions.  Don't check
+		 * PAUSE-loop-exiting, software can't expect a given PAUSE to
+		 * exit, i.e. KVM is within its rights to allow L2 to execute
+		 * the PAUSE.
+		 */
+		if ((info->rep_prefix != REPE_PREFIX) ||
+		    !nested_cpu_has2(vmcs12, CPU_BASED_PAUSE_EXITING))
+			return X86EMUL_CONTINUE;
+
+		break;
+
 	/* TODO: check more intercepts... */
 	default:
 		break;
@@ -8000,7 +7982,6 @@ static void vmx_setup_mce(struct kvm_vcpu *vcpu)
 			~FEAT_CTL_LMCE_ENABLED;
 }
 
-#ifdef CONFIG_KVM_SMM
 static int vmx_smi_allowed(struct kvm_vcpu *vcpu, bool for_injection)
 {
 	/* we need a nested vmexit to enter SMM, postpone if run is pending */
@@ -8009,7 +7990,7 @@ static int vmx_smi_allowed(struct kvm_vcpu *vcpu, bool for_injection)
 	return !is_smm(vcpu);
 }
 
-static int vmx_enter_smm(struct kvm_vcpu *vcpu, union kvm_smram *smram)
+static int vmx_enter_smm(struct kvm_vcpu *vcpu, char *smstate)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 
@@ -8030,7 +8011,7 @@ static int vmx_enter_smm(struct kvm_vcpu *vcpu, union kvm_smram *smram)
 	return 0;
 }
 
-static int vmx_leave_smm(struct kvm_vcpu *vcpu, const union kvm_smram *smram)
+static int vmx_leave_smm(struct kvm_vcpu *vcpu, const char *smstate)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	int ret;
@@ -8055,7 +8036,6 @@ static void vmx_enable_smi_window(struct kvm_vcpu *vcpu)
 {
 	/* RSM will cause a vmexit anyway.  */
 }
-#endif
 
 static bool vmx_apic_init_signal_blocked(struct kvm_vcpu *vcpu)
 {
@@ -8223,12 +8203,10 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 
 	.setup_mce = vmx_setup_mce,
 
-#ifdef CONFIG_KVM_SMM
 	.smi_allowed = vmx_smi_allowed,
 	.enter_smm = vmx_enter_smm,
 	.leave_smm = vmx_leave_smm,
 	.enable_smi_window = vmx_enable_smi_window,
-#endif
 
 	.can_emulate_instruction = vmx_can_emulate_instruction,
 	.apic_init_signal_blocked = vmx_apic_init_signal_blocked,
@@ -8570,8 +8548,8 @@ static int __init vmx_init(void)
 		}
 
 		if (ms_hyperv.nested_features & HV_X64_NESTED_DIRECT_FLUSH)
-			vmx_x86_ops.enable_l2_tlb_flush
-				= hv_enable_l2_tlb_flush;
+			vmx_x86_ops.enable_direct_tlbflush
+				= hv_enable_direct_tlbflush;
 
 	} else {
 		enlightened_vmcs = false;

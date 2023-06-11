@@ -265,6 +265,9 @@ enum tpacpi_hkey_event_t {
 
 #define FAN_NOT_PRESENT		65535
 
+#define strlencmp(a, b) (strncmp((a), (b), strlen(b)))
+
+
 /****************************************************************************
  * Driver-wide structs and misc. variables
  */
@@ -1332,9 +1335,9 @@ static int tpacpi_rfk_procfs_write(const enum tpacpi_rfk_id id, char *buf)
 		return -ENODEV;
 
 	while ((cmd = strsep(&buf, ","))) {
-		if (strstarts(cmd, "enable"))
+		if (strlencmp(cmd, "enable") == 0)
 			status = TPACPI_RFK_RADIO_ON;
-		else if (strstarts(cmd, "disable"))
+		else if (strlencmp(cmd, "disable") == 0)
 			status = TPACPI_RFK_RADIO_OFF;
 		else
 			return -EINVAL;
@@ -4195,12 +4198,12 @@ static int hotkey_write(char *buf)
 
 	res = 0;
 	while ((cmd = strsep(&buf, ","))) {
-		if (strstarts(cmd, "enable")) {
+		if (strlencmp(cmd, "enable") == 0) {
 			hotkey_enabledisable_warn(1);
-		} else if (strstarts(cmd, "disable")) {
+		} else if (strlencmp(cmd, "disable") == 0) {
 			hotkey_enabledisable_warn(0);
 			res = -EPERM;
-		} else if (strstarts(cmd, "reset")) {
+		} else if (strlencmp(cmd, "reset") == 0) {
 			mask = (hotkey_all_mask | hotkey_source_mask)
 				& ~hotkey_reserved_mask;
 		} else if (sscanf(cmd, "0x%x", &mask) == 1) {
@@ -4476,6 +4479,14 @@ static const struct dmi_system_id fwbug_list[] __initconst = {
 		.matches = {
 			DMI_MATCH(DMI_BOARD_VENDOR, "LENOVO"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "20UH"),
+		}
+	},
+	{
+		.ident = "T14s Gen1 AMD",
+		.driver_data = &quirk_s2idle_bug,
+		.matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "20UJ"),
 		}
 	},
 	{
@@ -5230,33 +5241,33 @@ static int video_write(char *buf)
 	disable = 0;
 
 	while ((cmd = strsep(&buf, ","))) {
-		if (strstarts(cmd, "lcd_enable")) {
+		if (strlencmp(cmd, "lcd_enable") == 0) {
 			enable |= TP_ACPI_VIDEO_S_LCD;
-		} else if (strstarts(cmd, "lcd_disable")) {
+		} else if (strlencmp(cmd, "lcd_disable") == 0) {
 			disable |= TP_ACPI_VIDEO_S_LCD;
-		} else if (strstarts(cmd, "crt_enable")) {
+		} else if (strlencmp(cmd, "crt_enable") == 0) {
 			enable |= TP_ACPI_VIDEO_S_CRT;
-		} else if (strstarts(cmd, "crt_disable")) {
+		} else if (strlencmp(cmd, "crt_disable") == 0) {
 			disable |= TP_ACPI_VIDEO_S_CRT;
 		} else if (video_supported == TPACPI_VIDEO_NEW &&
-			   strstarts(cmd, "dvi_enable")) {
+			   strlencmp(cmd, "dvi_enable") == 0) {
 			enable |= TP_ACPI_VIDEO_S_DVI;
 		} else if (video_supported == TPACPI_VIDEO_NEW &&
-			   strstarts(cmd, "dvi_disable")) {
+			   strlencmp(cmd, "dvi_disable") == 0) {
 			disable |= TP_ACPI_VIDEO_S_DVI;
-		} else if (strstarts(cmd, "auto_enable")) {
+		} else if (strlencmp(cmd, "auto_enable") == 0) {
 			res = video_autosw_set(1);
 			if (res)
 				return res;
-		} else if (strstarts(cmd, "auto_disable")) {
+		} else if (strlencmp(cmd, "auto_disable") == 0) {
 			res = video_autosw_set(0);
 			if (res)
 				return res;
-		} else if (strstarts(cmd, "video_switch")) {
+		} else if (strlencmp(cmd, "video_switch") == 0) {
 			res = video_outputsw_cycle();
 			if (res)
 				return res;
-		} else if (strstarts(cmd, "expand_toggle")) {
+		} else if (strlencmp(cmd, "expand_toggle") == 0) {
 			res = video_expand_toggle();
 			if (res)
 				return res;
@@ -5650,9 +5661,9 @@ static int light_write(char *buf)
 		return -ENODEV;
 
 	while ((cmd = strsep(&buf, ","))) {
-		if (strstarts(cmd, "on")) {
+		if (strlencmp(cmd, "on") == 0) {
 			newstatus = 1;
-		} else if (strstarts(cmd, "off")) {
+		} else if (strlencmp(cmd, "off") == 0) {
 			newstatus = 0;
 		} else
 			return -EINVAL;
@@ -7123,10 +7134,10 @@ static int brightness_write(char *buf)
 		return level;
 
 	while ((cmd = strsep(&buf, ","))) {
-		if (strstarts(cmd, "up")) {
+		if (strlencmp(cmd, "up") == 0) {
 			if (level < bright_maxlvl)
 				level++;
-		} else if (strstarts(cmd, "down")) {
+		} else if (strlencmp(cmd, "down") == 0) {
 			if (level > 0)
 				level--;
 		} else if (sscanf(cmd, "level %d", &level) == 1 &&
@@ -7875,13 +7886,13 @@ static int volume_write(char *buf)
 
 	while ((cmd = strsep(&buf, ","))) {
 		if (!tp_features.mixer_no_level_control) {
-			if (strstarts(cmd, "up")) {
+			if (strlencmp(cmd, "up") == 0) {
 				if (new_mute)
 					new_mute = 0;
 				else if (new_level < TP_EC_VOLUME_MAX)
 					new_level++;
 				continue;
-			} else if (strstarts(cmd, "down")) {
+			} else if (strlencmp(cmd, "down") == 0) {
 				if (new_mute)
 					new_mute = 0;
 				else if (new_level > 0)
@@ -7893,9 +7904,9 @@ static int volume_write(char *buf)
 				continue;
 			}
 		}
-		if (strstarts(cmd, "mute"))
+		if (strlencmp(cmd, "mute") == 0)
 			new_mute = TP_EC_AUDIO_MUTESW_MSK;
-		else if (strstarts(cmd, "unmute"))
+		else if (strlencmp(cmd, "unmute") == 0)
 			new_mute = 0;
 		else
 			return -EINVAL;
@@ -9118,9 +9129,10 @@ static int fan_write_cmd_level(const char *cmd, int *rc)
 {
 	int level;
 
-	if (strstarts(cmd, "level auto"))
+	if (strlencmp(cmd, "level auto") == 0)
 		level = TP_EC_FAN_AUTO;
-	else if (strstarts(cmd, "level disengaged") || strstarts(cmd, "level full-speed"))
+	else if ((strlencmp(cmd, "level disengaged") == 0) ||
+			(strlencmp(cmd, "level full-speed") == 0))
 		level = TP_EC_FAN_FULLSPEED;
 	else if (sscanf(cmd, "level %d", &level) != 1)
 		return 0;
@@ -9138,7 +9150,7 @@ static int fan_write_cmd_level(const char *cmd, int *rc)
 
 static int fan_write_cmd_enable(const char *cmd, int *rc)
 {
-	if (!strstarts(cmd, "enable"))
+	if (strlencmp(cmd, "enable") != 0)
 		return 0;
 
 	*rc = fan_set_enable();
@@ -9153,7 +9165,7 @@ static int fan_write_cmd_enable(const char *cmd, int *rc)
 
 static int fan_write_cmd_disable(const char *cmd, int *rc)
 {
-	if (!strstarts(cmd, "disable"))
+	if (strlencmp(cmd, "disable") != 0)
 		return 0;
 
 	*rc = fan_set_disable();
@@ -9904,7 +9916,7 @@ ATTRIBUTE_GROUPS(tpacpi_battery);
 
 /* ACPI battery hooking */
 
-static int tpacpi_battery_add(struct power_supply *battery, struct acpi_battery_hook *hook)
+static int tpacpi_battery_add(struct power_supply *battery)
 {
 	int batteryid = tpacpi_battery_get_id(battery->desc->name);
 
@@ -9915,7 +9927,7 @@ static int tpacpi_battery_add(struct power_supply *battery, struct acpi_battery_
 	return 0;
 }
 
-static int tpacpi_battery_remove(struct power_supply *battery, struct acpi_battery_hook *hook)
+static int tpacpi_battery_remove(struct power_supply *battery)
 {
 	device_remove_groups(&battery->dev, tpacpi_battery_groups);
 	return 0;
@@ -10310,6 +10322,7 @@ static atomic_t dytc_ignore_event = ATOMIC_INIT(0);
 static DEFINE_MUTEX(dytc_mutex);
 static int dytc_capabilities;
 static bool dytc_mmc_get_available;
+static int profile_force;
 
 static int convert_dytc_to_profile(int funcmode, int dytcmode,
 		enum platform_profile_option *profile)
@@ -10572,6 +10585,21 @@ static int tpacpi_dytc_profile_init(struct ibm_init_struct *iibm)
 	if (err)
 		return err;
 
+	/* Check if user wants to override the profile selection */
+	if (profile_force) {
+		switch (profile_force) {
+		case -1:
+			dytc_capabilities = 0;
+			break;
+		case 1:
+			dytc_capabilities = BIT(DYTC_FC_MMC);
+			break;
+		case 2:
+			dytc_capabilities = BIT(DYTC_FC_PSC);
+			break;
+		}
+		pr_debug("Profile selection forced: 0x%x\n", dytc_capabilities);
+	}
 	if (dytc_capabilities & BIT(DYTC_FC_MMC)) { /* MMC MODE */
 		pr_debug("MMC is supported\n");
 		/*
@@ -10585,11 +10613,6 @@ static int tpacpi_dytc_profile_init(struct ibm_init_struct *iibm)
 				dytc_mmc_get_available = true;
 		}
 	} else if (dytc_capabilities & BIT(DYTC_FC_PSC)) { /* PSC MODE */
-		/* Support for this only works on AMD platforms */
-		if (boot_cpu_data.x86_vendor != X86_VENDOR_AMD) {
-			dbg_printk(TPACPI_DBG_INIT, "PSC not support on Intel platforms\n");
-			return -ENODEV;
-		}
 		pr_debug("PSC is supported\n");
 	} else {
 		dbg_printk(TPACPI_DBG_INIT, "No DYTC support available\n");
@@ -11637,6 +11660,9 @@ module_param_named(uwb_state, tpacpi_uwb_emulstate, bool, 0);
 MODULE_PARM_DESC(uwb_state,
 		 "Initial state of the emulated UWB switch");
 #endif
+
+module_param(profile_force, int, 0444);
+MODULE_PARM_DESC(profile_force, "Force profile mode. -1=off, 1=MMC, 2=PSC");
 
 static void thinkpad_acpi_module_exit(void)
 {

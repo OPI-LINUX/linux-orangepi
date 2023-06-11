@@ -154,6 +154,7 @@ struct erofs_sb_info {
 
 	/* what we really care is nid, rather than ino.. */
 	erofs_nid_t root_nid;
+	erofs_nid_t packed_nid;
 	/* used for statfs, f_files - f_favail */
 	u64 inos;
 
@@ -255,7 +256,8 @@ static inline int erofs_wait_on_workgroup_freezed(struct erofs_workgroup *grp)
 
 enum erofs_kmap_type {
 	EROFS_NO_KMAP,		/* don't map the buffer */
-	EROFS_KMAP,		/* use kmap_local_page() to map the buffer */
+	EROFS_KMAP,		/* use kmap() to map the buffer */
+	EROFS_KMAP_ATOMIC,	/* use kmap_atomic() to map the buffer */
 };
 
 struct erofs_buf {
@@ -309,7 +311,7 @@ struct erofs_inode {
 
 	unsigned char datalayout;
 	unsigned char inode_isize;
-	unsigned short xattr_isize;
+	unsigned int xattr_isize;
 
 	unsigned int xattr_shared_count;
 	unsigned int *xattr_shared_xattrs;

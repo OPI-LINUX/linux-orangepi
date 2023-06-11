@@ -11,7 +11,6 @@
 #include <linux/of_device.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
-#include <linux/pm_domain.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
 
@@ -477,8 +476,11 @@ int qnoc_probe(struct platform_device *pdev)
 		}
 
 		mmio = devm_ioremap_resource(dev, res);
-		if (IS_ERR(mmio))
+
+		if (IS_ERR(mmio)) {
+			dev_err(dev, "Cannot ioremap interconnect bus resource\n");
 			return PTR_ERR(mmio);
+		}
 
 		qp->regmap = devm_regmap_init_mmio(dev, mmio, desc->regmap_cfg);
 		if (IS_ERR(qp->regmap)) {
@@ -488,19 +490,13 @@ int qnoc_probe(struct platform_device *pdev)
 	}
 
 regmap_done:
-	ret = devm_clk_bulk_get_optional(dev, qp->num_clks, qp->bus_clks);
+	ret = devm_clk_bulk_get(dev, qp->num_clks, qp->bus_clks);
 	if (ret)
 		return ret;
 
 	ret = clk_bulk_prepare_enable(qp->num_clks, qp->bus_clks);
 	if (ret)
 		return ret;
-
-	if (desc->has_bus_pd) {
-		ret = dev_pm_domain_attach(dev, true);
-		if (ret)
-			return ret;
-	}
 
 	provider = &qp->provider;
 	provider->dev = dev;

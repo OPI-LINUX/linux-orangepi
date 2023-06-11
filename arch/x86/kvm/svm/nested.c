@@ -25,7 +25,6 @@
 #include "trace.h"
 #include "mmu.h"
 #include "x86.h"
-#include "smm.h"
 #include "cpuid.h"
 #include "lapic.h"
 #include "svm.h"
@@ -138,22 +137,20 @@ void recalc_intercepts(struct vcpu_svm *svm)
 		c->intercepts[i] = h->intercepts[i];
 
 	if (g->int_ctl & V_INTR_MASKING_MASK) {
-		/*
-		 * Once running L2 with HF_VINTR_MASK, EFLAGS.IF and CR8
-		 * does not affect any interrupt we may want to inject;
-		 * therefore, writes to CR8 are irrelevant to L0, as are
-		 * interrupt window vmexits.
-		 */
+		/* We only want the cr8 intercept bits of L1 */
+		vmcb_clr_intercept(c, INTERCEPT_CR8_READ);
 		vmcb_clr_intercept(c, INTERCEPT_CR8_WRITE);
+
+		/*
+		 * Once running L2 with HF_VINTR_MASK, EFLAGS.IF does not
+		 * affect any interrupt we may want to inject; therefore,
+		 * interrupt window vmexits are irrelevant to L0.
+		 */
 		vmcb_clr_intercept(c, INTERCEPT_VINTR);
 	}
 
-	/*
-	 * We want to see VMMCALLs from a nested guest only when Hyper-V L2 TLB
-	 * flush feature is enabled.
-	 */
-	if (!nested_svm_l2_tlb_flush_enabled(&svm->vcpu))
-		vmcb_clr_intercept(c, INTERCEPT_VMMCALL);
+	/* We don't want to see VMMCALLs from a nested guest */
+	vmcb_clr_intercept(c, INTERCEPT_VMMCALL);
 
 	for (i = 0; i < MAX_INTERCEPT; i++)
 		c->intercepts[i] |= g->intercepts[i];
@@ -475,15 +472,6 @@ static void nested_save_pending_event_to_vmcb12(struct vcpu_svm *svm,
 
 static void nested_svm_transition_tlb_flush(struct kvm_vcpu *vcpu)
 {
-	/*
-	 * KVM_REQ_HV_TLB_FLUSH flushes entries from either L1's VP_ID or
-	 * L2's VP_ID upon request from the guest. Make sure we check for
-	 * pending entries in the right FIFO upon L1/L2 transition as these
-	 * requests are put by other vCPUs asynchronously.
-	 */
-	if (to_hv_vcpu(vcpu) && npt_enabled)
-		kvm_make_request(KVM_REQ_HV_TLB_FLUSH, vcpu);
-
 	/*
 	 * TODO: optimize unconditional TLB flush/MMU sync.  A partial list of
 	 * things to fix before this can be conditional:
@@ -811,8 +799,6 @@ int enter_svm_guest_mode(struct kvm_vcpu *vcpu, u64 vmcb12_gpa,
 	if (kvm_vcpu_apicv_active(vcpu))
 		kvm_make_request(KVM_REQ_APICV_UPDATE, vcpu);
 
-	nested_svm_hv_update_vm_vp_ids(vcpu);
-
 	return 0;
 }
 
@@ -833,13 +819,6 @@ int nested_svm_vmrun(struct kvm_vcpu *vcpu)
 	if (is_smm(vcpu)) {
 		kvm_queue_exception(vcpu, UD_VECTOR);
 		return 1;
-	}
-
-	/* This fails when VP assist page is enabled but the supplied GPA is bogus */
-	ret = kvm_hv_verify_vp_assist(vcpu);
-	if (ret) {
-		kvm_inject_gp(vcpu, 0);
-		return ret;
 	}
 
 	vmcb12_gpa = svm->vmcb->save.rax;
@@ -1403,7 +1382,6 @@ static int svm_check_nested_events(struct kvm_vcpu *vcpu)
 		return 0;
 	}
 
-#ifdef CONFIG_KVM_SMM
 	if (vcpu->arch.smi_pending && !svm_smi_blocked(vcpu)) {
 		if (block_nested_events)
 			return -EBUSY;
@@ -1412,7 +1390,6 @@ static int svm_check_nested_events(struct kvm_vcpu *vcpu)
 		nested_svm_simple_vmexit(svm, SVM_EXIT_SMI);
 		return 0;
 	}
-#endif
 
 	if (vcpu->arch.nmi_pending && !svm_nmi_blocked(vcpu)) {
 		if (block_nested_events)
@@ -1439,7 +1416,6 @@ static int svm_check_nested_events(struct kvm_vcpu *vcpu)
 int nested_svm_exit_special(struct vcpu_svm *svm)
 {
 	u32 exit_code = svm->vmcb->control.exit_code;
-	struct kvm_vcpu *vcpu = &svm->vcpu;
 
 	switch (exit_code) {
 	case SVM_EXIT_INTR:
@@ -1458,13 +1434,6 @@ int nested_svm_exit_special(struct vcpu_svm *svm)
 			return NESTED_EXIT_HOST;
 		break;
 	}
-	case SVM_EXIT_VMMCALL:
-		/* Hyper-V L2 TLB flush hypercall is handled by L0 */
-		if (guest_hv_cpuid_has_l2_tlb_flush(vcpu) &&
-		    nested_svm_l2_tlb_flush_enabled(vcpu) &&
-		    kvm_hv_is_tlb_flush_hcall(vcpu))
-			return NESTED_EXIT_HOST;
-		break;
 	default:
 		break;
 	}
@@ -1745,9 +1714,6 @@ static bool svm_get_nested_state_pages(struct kvm_vcpu *vcpu)
 		return false;
 	}
 
-	if (kvm_hv_verify_vp_assist(vcpu))
-		return false;
-
 	return true;
 }
 
@@ -1759,5 +1725,4 @@ struct kvm_x86_nested_ops svm_nested_ops = {
 	.get_nested_state_pages = svm_get_nested_state_pages,
 	.get_state = svm_get_nested_state,
 	.set_state = svm_set_nested_state,
-	.hv_inject_synthetic_vmexit_post_tlb_flush = svm_hv_inject_synthetic_vmexit_post_tlb_flush,
 };

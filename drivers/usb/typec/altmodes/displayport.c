@@ -429,7 +429,7 @@ static const char * const pin_assignments[] = {
  */
 static u8 get_current_pin_assignments(struct dp_altmode *dp)
 {
-	if (DP_CONF_CURRENTLY(dp->data.conf) == DP_CONF_UFP_U_AS_DFP_D)
+	if (DP_CONF_CURRENTLY(dp->data.conf) == DP_CONF_DFP_D)
 		return DP_CAP_PIN_ASSIGN_DFP_D(dp->alt->vdo);
 	else
 		return DP_CAP_PIN_ASSIGN_UFP_D(dp->alt->vdo);
@@ -512,6 +512,10 @@ static ssize_t pin_assignment_show(struct device *dev,
 	}
 
 	mutex_unlock(&dp->lock);
+
+	/* get_current_pin_assignments can return 0 when no matching pin assignments are found */
+	if (len == 0)
+		len++;
 
 	buf[len - 1] = '\n';
 	return len;

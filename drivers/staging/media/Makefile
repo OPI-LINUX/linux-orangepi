@@ -1,5 +1,4 @@
 # SPDX-License-Identifier: GPL-2.0
-obj-$(CONFIG_VIDEO_ATMEL_ISC_BASE)	+= deprecated/atmel/
 obj-$(CONFIG_INTEL_ATOMISP)     += atomisp/
 obj-$(CONFIG_VIDEO_CPIA2)	+= deprecated/cpia2/
 obj-$(CONFIG_VIDEO_IMX_MEDIA)	+= imx/
@@ -8,7 +7,6 @@ obj-$(CONFIG_VIDEO_MESON_VDEC)	+= meson/vdec/
 obj-$(CONFIG_VIDEO_MEYE)	+= deprecated/meye/
 obj-$(CONFIG_VIDEO_OMAP4)	+= omap4iss/
 obj-$(CONFIG_VIDEO_ROCKCHIP_VDEC)	+= rkvdec/
-obj-$(CONFIG_VIDEO_RPIVID)	+= rpivid/
 obj-$(CONFIG_VIDEO_STKWEBCAM)	+= deprecated/stkwebcam/
 obj-$(CONFIG_VIDEO_SUNXI)	+= sunxi/
 obj-$(CONFIG_VIDEO_TEGRA)	+= tegra-video/

@@ -17,7 +17,6 @@
 
 	aliases {
 		ethernet0 = &emac0;
-		ethernet1 = &wlan;
 		serial0 = &uart0;
 		mmc0 = &mmc0;  /* mmc0/mmcblk0 for SD */
 		mmc1 = &mmc1;  /* mmc1/mmcblk1 for SDIO */
@@ -65,7 +64,7 @@
 		regulator-always-on;
 	};
 
-	reg_usb1_vbus: regulator-usb1-vbus {
+	reg_usb1_vbus: usb1-vbus {
 		compatible = "regulator-fixed";
 		regulator-name = "usb1-vbus";
 		regulator-min-microvolt = <5000000>;
@@ -73,36 +72,18 @@
 		vin-supply = <&reg_vcc5v>;
 		enable-active-high;
 		gpio = <&pio 2 16 GPIO_ACTIVE_HIGH>; /* PC16 */
+		status = "okay";
 	};
 
-	reg_vcc33_wifi: vcc33-wifi {
-		/* Always on 3.3V regulator for WiFi and BT */
+	reg_vcc_wifi: reg_vcc_wifi {
 		compatible = "regulator-fixed";
-		regulator-name = "vcc33-wifi";
+		regulator-name = "vcc-wifi";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
+		gpio = <&pio 6 18 GPIO_ACTIVE_HIGH>; /* PG18 WL_REG_ON */
 		regulator-always-on;
-		vin-supply = <&reg_vcc5v>;
-	};
-
-	reg_vcc_wifi_io: vcc-wifi-io {
-		/* Always on 1.8V/300mA regulator for WiFi and BT IO */
-		compatible = "regulator-fixed";
-		regulator-name = "vcc-wifi-io";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-		regulator-always-on;
-		vin-supply = <&reg_vcc33_wifi>;
-	};
-
-	wifi_pwrseq: wifi-pwrseq {
-		compatible = "mmc-pwrseq-simple";
-		clocks = <&rtc CLK_OSC32K_FANOUT>;
-		clock-names = "ext_clock";
-		pinctrl-names = "default";
-		pinctrl-0 = <&clk_losc>; /* PG10 with MUX3 set */
-		reset-gpios = <&pio 6 18 GPIO_ACTIVE_LOW>; /* PG18 */
-		post-power-on-delay-ms = <200>;
+		enable-active-high;
+		status = "okay";
 	};
 };
 
@@ -111,7 +92,39 @@
 	status = "okay";
 };
 
+&de {
+	status = "okay";
+};
+
+&ehci0 {
+	status = "okay";
+};
+
 &ehci1 {
+	status = "okay";
+};
+
+&ehci2 {
+	status = "okay";
+};
+
+&ehci3 {
+	status = "okay";
+};
+
+&hdmi {
+	hvcc-supply = <&reg_bldo1>;
+	status = "okay";
+};
+
+&hdmi_out {
+	hdmi_out_con: endpoint {
+		remote-endpoint = <&hdmi_con_in>;
+	};
+};
+
+&gpu {
+	mali-supply = <&reg_dcdcc>;
 	status = "okay";
 };
 
@@ -143,20 +156,34 @@
 };
 
 &mmc1 {
-	vmmc-supply = <&reg_vcc33_wifi>;
-	vqmmc-supply = <&reg_vcc_wifi_io>;
-	mmc-pwrseq = <&wifi_pwrseq>;
+	vmmc-supply = <&reg_dcdce>;
+	vqmmc-supply = <&reg_vcc_wifi>;
 	bus-width = <4>;
 	non-removable;
-	mmc-ddr-1_8v;
 	status = "okay";
 
 	wlan: wifi@1 {
 		reg = <1>;
+		compatible = "allwinner,aw859a";
+		interrupt-parent = <&pio>;
+		interrupts = <GIC_SPI 207 IRQ_TYPE_EDGE_RISING>;
+		interrupt-names = "host-wake";
 	};
 };
 
+&ohci0 {
+	status = "okay";
+};
+
 &ohci1 {
+	status = "okay";
+};
+
+&ohci2 {
+	status = "okay";
+};
+
+&ohci3 {
 	status = "okay";
 };
 
@@ -270,8 +297,6 @@
 
 &spi0  {
 	status = "okay";
-	pinctrl-names = "default";
-	pinctrl-0 = <&spi0_pins>, <&spi0_cs0_pin>;
 
 	flash@0 {
 		#address-cells = <1>;
@@ -285,27 +310,6 @@
 &uart0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart0_ph_pins>;
-	status = "okay";
-};
-
-&usbotg {
-	/*
-	 * PHY0 pins are connected to a USB-C socket, but a role switch
-	 * is not implemented: both CC pins are pulled to GND.
-	 * The VBUS pins power the device, so a fixed peripheral mode
-	 * is the best choice.
-	 * The board can be powered via GPIOs, in this case port0 *can*
-	 * act as a host (with a cable/adapter ignoring CC), as VBUS is
-	 * then provided by the GPIOs. Any user of this setup would
-	 * need to adjust the DT accordingly: dr_mode set to "host",
-	 * enabling OHCI0 and EHCI0.
-	 */
-	dr_mode = "peripheral";
-	status = "okay";
-};
-
-&usbphy {
-	usb1_vbus-supply = <&reg_usb1_vbus>;
 	status = "okay";
 };
 
@@ -327,7 +331,19 @@
 	};
 };
 
+&usbotg {
+	dr_mode = "peripheral";
+	status = "okay";
+};
+
+&usbphy {
+	usb1_vbus-supply = <&reg_usb1_vbus>;
+	status = "okay";
+};
+
 &i2c3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c3_ph_pins>;
 	status = "okay";
 };
 
@@ -361,27 +377,6 @@
 	status = "okay";
 };
 
-&de {
-	status = "okay";
-};
-
 &hdmi_audio {
 	status = "okay";
 };
-
-&hdmi {
-	hvcc-supply = <&reg_bldo1>;
-	status = "okay";
-};
-
-&hdmi_out {
-	hdmi_out_con: endpoint {
-		remote-endpoint = <&hdmi_con_in>;
-	};
-};
-
-&gpu {
-	mali-supply = <&reg_dcdcc>;
-	status = "okay";
-};
-

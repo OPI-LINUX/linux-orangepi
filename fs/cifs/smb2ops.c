@@ -1682,7 +1682,7 @@ smb2_copychunk_range(const unsigned int xid,
 		pcchunk->SourceOffset = cpu_to_le64(src_off);
 		pcchunk->TargetOffset = cpu_to_le64(dest_off);
 		pcchunk->Length =
-			cpu_to_le32(min_t(u32, len, tcon->max_bytes_chunk));
+			cpu_to_le32(min_t(u64, len, tcon->max_bytes_chunk));
 
 		/* Request server copy to target from src identified by key */
 		kfree(retbuf);
@@ -2383,15 +2383,14 @@ smb2_is_network_name_deleted(char *buf, struct TCP_Server_Info *server)
 }
 
 static int
-smb2_oplock_response(struct cifs_tcon *tcon, struct cifs_fid *fid,
-		     struct cifsInodeInfo *cinode)
+smb2_oplock_response(struct cifs_tcon *tcon, __u64 persistent_fid,
+		__u64 volatile_fid, __u16 net_fid, struct cifsInodeInfo *cinode)
 {
 	if (tcon->ses->server->capabilities & SMB2_GLOBAL_CAP_LEASING)
 		return SMB2_lease_break(0, tcon, cinode->lease_key,
 					smb2_get_lease_state(cinode));
 
-	return SMB2_oplock_break(0, tcon, fid->persistent_fid,
-				 fid->volatile_fid,
+	return SMB2_oplock_break(0, tcon, persistent_fid, volatile_fid,
 				 CIFS_CACHE_READ(cinode) ? 1 : 0);
 }
 
@@ -4498,27 +4497,21 @@ smb3_init_transform_rq(struct TCP_Server_Info *server, int num_rqst,
 	int rc = -ENOMEM;
 
 	for (i = 1; i < num_rqst; i++) {
-		struct smb_rqst *old = &old_rq[i - 1];
-		struct smb_rqst *new = &new_rq[i];
-
-		orig_len += smb_rqst_len(server, old);
-		new->rq_iov = old->rq_iov;
-		new->rq_nvec = old->rq_nvec;
-
-		npages = old->rq_npages;
-		if (!npages)
-			continue;
-
+		npages = old_rq[i - 1].rq_npages;
 		pages = kmalloc_array(npages, sizeof(struct page *),
 				      GFP_KERNEL);
 		if (!pages)
 			goto err_free;
 
-		new->rq_pages = pages;
-		new->rq_npages = npages;
-		new->rq_offset = old->rq_offset;
-		new->rq_pagesz = old->rq_pagesz;
-		new->rq_tailsz = old->rq_tailsz;
+		new_rq[i].rq_pages = pages;
+		new_rq[i].rq_npages = npages;
+		new_rq[i].rq_offset = old_rq[i - 1].rq_offset;
+		new_rq[i].rq_pagesz = old_rq[i - 1].rq_pagesz;
+		new_rq[i].rq_tailsz = old_rq[i - 1].rq_tailsz;
+		new_rq[i].rq_iov = old_rq[i - 1].rq_iov;
+		new_rq[i].rq_nvec = old_rq[i - 1].rq_nvec;
+
+		orig_len += smb_rqst_len(server, &old_rq[i - 1]);
 
 		for (j = 0; j < npages; j++) {
 			pages[j] = alloc_page(GFP_KERNEL|__GFP_HIGHMEM);
@@ -4528,12 +4521,17 @@ smb3_init_transform_rq(struct TCP_Server_Info *server, int num_rqst,
 
 		/* copy pages form the old */
 		for (j = 0; j < npages; j++) {
+			char *dst, *src;
 			unsigned int offset, len;
 
-			rqst_page_get_length(new, j, &len, &offset);
+			rqst_page_get_length(&new_rq[i], j, &len, &offset);
 
-			memcpy_page(new->rq_pages[j], offset,
-				    old->rq_pages[j], offset, len);
+			dst = (char *) kmap(new_rq[i].rq_pages[j]) + offset;
+			src = (char *) kmap(old_rq[i - 1].rq_pages[j]) + offset;
+
+			memcpy(dst, src, len);
+			kunmap(new_rq[i].rq_pages[j]);
+			kunmap(old_rq[i - 1].rq_pages[j]);
 		}
 	}
 

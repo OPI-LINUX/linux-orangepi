@@ -60,7 +60,6 @@ enum {
 	FAULT_SLAB_ALLOC,
 	FAULT_DQUOT_INIT,
 	FAULT_LOCK_OP,
-	FAULT_BLKADDR,
 	FAULT_MAX,
 };
 
@@ -107,7 +106,6 @@ extern const char *f2fs_fault_name[FAULT_MAX];
 #define F2FS_MOUNT_MERGE_CHECKPOINT	0x10000000
 #define	F2FS_MOUNT_GC_MERGE		0x20000000
 #define F2FS_MOUNT_COMPRESS_CACHE	0x40000000
-#define F2FS_MOUNT_AGE_EXTENT_CACHE	0x80000000
 
 #define F2FS_OPTION(sbi)	((sbi)->mount_opt)
 #define clear_opt(sbi, option)	(F2FS_OPTION(sbi).opt &= ~F2FS_MOUNT_##option)
@@ -204,6 +202,10 @@ struct f2fs_mount_info {
 #define __F2FS_HAS_FEATURE(raw_super, mask)				\
 	((raw_super->feature & cpu_to_le32(mask)) != 0)
 #define F2FS_HAS_FEATURE(sbi, mask)	__F2FS_HAS_FEATURE(sbi->raw_super, mask)
+#define F2FS_SET_FEATURE(sbi, mask)					\
+	(sbi->raw_super->feature |= cpu_to_le32(mask))
+#define F2FS_CLEAR_FEATURE(sbi, mask)					\
+	(sbi->raw_super->feature &= ~cpu_to_le32(mask))
 
 /*
  * Default values for user and/or group using reserved blocks
@@ -326,12 +328,8 @@ struct discard_entry {
 	unsigned char discard_map[SIT_VBLOCK_MAP_SIZE];	/* segment discard bitmap */
 };
 
-/* minimum discard granularity, unit: block count */
-#define MIN_DISCARD_GRANULARITY		1
 /* default discard granularity of inner discard thread, unit: block count */
 #define DEFAULT_DISCARD_GRANULARITY		16
-/* default maximum discard granularity of ordered discard, unit: block count */
-#define DEFAULT_MAX_ORDERED_DISCARD_GRANULARITY	16
 
 /* max discard pend list number */
 #define MAX_PLIST_NUM		512
@@ -410,9 +408,7 @@ struct discard_cmd_control {
 	unsigned int min_discard_issue_time;	/* min. interval between discard issue */
 	unsigned int mid_discard_issue_time;	/* mid. interval between discard issue */
 	unsigned int max_discard_issue_time;	/* max. interval between discard issue */
-	unsigned int discard_urgent_util;	/* utilization which issue discard proactively */
 	unsigned int discard_granularity;	/* discard granularity */
-	unsigned int max_ordered_discard;	/* maximum discard granularity issued by lba order */
 	unsigned int undiscard_blks;		/* # of undiscard blocks */
 	unsigned int next_pos;			/* next discard position */
 	atomic_t issued_discard;		/* # of issued discard */
@@ -608,34 +604,16 @@ enum {
 /* number of extent info in extent cache we try to shrink */
 #define READ_EXTENT_CACHE_SHRINK_NUMBER	128
 
-/* number of age extent info in extent cache we try to shrink */
-#define AGE_EXTENT_CACHE_SHRINK_NUMBER	128
-#define LAST_AGE_WEIGHT			30
-#define SAME_AGE_REGION			1024
-
-/*
- * Define data block with age less than 1GB as hot data
- * define data block with age less than 10GB but more than 1GB as warm data
- */
-#define DEF_HOT_DATA_AGE_THRESHOLD	262144
-#define DEF_WARM_DATA_AGE_THRESHOLD	2621440
-
 /* extent cache type */
 enum extent_type {
 	EX_READ,
-	EX_BLOCK_AGE,
 	NR_EXTENT_CACHES,
 };
 
 struct rb_entry {
 	struct rb_node rb_node;		/* rb node located in rb-tree */
-	union {
-		struct {
-			unsigned int ofs;	/* start offset of the entry */
-			unsigned int len;	/* length of the entry */
-		};
-		unsigned long long key;		/* 64-bits key */
-	} __packed;
+	unsigned int ofs;		/* start offset of the entry */
+	unsigned int len;		/* length of the entry */
 };
 
 struct extent_info {
@@ -650,13 +628,6 @@ struct extent_info {
 			/* physical extent length of compressed blocks */
 			unsigned int c_len;
 #endif
-		};
-		/* block age extent_cache */
-		struct {
-			/* block age of the extent */
-			unsigned long long age;
-			/* last total blocks allocated */
-			unsigned long long last_blocks;
 		};
 	};
 };
@@ -814,7 +785,6 @@ enum {
 	FI_ALIGNED_WRITE,	/* enable aligned write */
 	FI_COW_FILE,		/* indicate COW file */
 	FI_ATOMIC_COMMITTED,	/* indicate atomic commit completed except disk sync */
-	FI_ATOMIC_REPLACE,	/* indicate atomic replace */
 	FI_MAX,			/* max flag, never be used */
 };
 
@@ -1069,6 +1039,9 @@ struct f2fs_sm_info {
 	/* a threshold to reclaim prefree segments */
 	unsigned int rec_prefree_segments;
 
+	/* for batched trimming */
+	unsigned int trim_sections;		/* # of sections to trim */
+
 	struct list_head sit_entry_set;	/* sit entry set list */
 
 	unsigned int ipu_policy;	/* in-place-update policy */
@@ -1322,7 +1295,6 @@ enum {
 	MAX_TIME,
 };
 
-/* Note that you need to keep synchronization with this gc_mode_names array */
 enum {
 	GC_NORMAL,
 	GC_IDLE_CB,
@@ -1674,11 +1646,6 @@ struct f2fs_sb_info {
 
 	/* for extent tree cache */
 	struct extent_tree_info extent_tree[NR_EXTENT_CACHES];
-	atomic64_t allocated_data_blocks;	/* for block age extent_cache */
-
-	/* The threshold used for hot and warm data seperation*/
-	unsigned int hot_data_age_threshold;
-	unsigned int warm_data_age_threshold;
 
 	/* basic filesystem units */
 	unsigned int log_sectors_per_block;	/* log2 sectors per block */
@@ -1696,7 +1663,7 @@ struct f2fs_sb_info {
 	unsigned int total_node_count;		/* total node block count */
 	unsigned int total_valid_node_count;	/* valid node block count */
 	int dir_level;				/* directory level */
-	bool readdir_ra;			/* readahead inode in readdir */
+	int readdir_ra;				/* readahead inode in readdir */
 	u64 max_io_bytes;			/* max io bytes to merge IOs */
 
 	block_t user_block_count;		/* # of user blocks */
@@ -1737,9 +1704,8 @@ struct f2fs_sb_info {
 	unsigned int cur_victim_sec;		/* current victim section num */
 	unsigned int gc_mode;			/* current GC state */
 	unsigned int next_victim_seg[2];	/* next segment in victim section */
-	spinlock_t gc_remaining_trials_lock;
-	/* remaining trial count for GC_URGENT_* and GC_IDLE_* */
-	unsigned int gc_remaining_trials;
+	spinlock_t gc_urgent_high_lock;
+	unsigned int gc_urgent_high_remaining;	/* remaining trial count for GC_URGENT_HIGH */
 
 	/* for skip statistic */
 	unsigned long long skipped_gc_rwsem;		/* FG_GC only */
@@ -3576,6 +3542,7 @@ int f2fs_quota_sync(struct super_block *sb, int type);
 loff_t max_file_blocks(struct inode *inode);
 void f2fs_quota_off_umount(struct super_block *sb);
 void f2fs_handle_stop(struct f2fs_sb_info *sbi, unsigned char reason);
+void f2fs_save_errors(struct f2fs_sb_info *sbi, unsigned char flag);
 void f2fs_handle_error(struct f2fs_sb_info *sbi, unsigned char error);
 int f2fs_commit_super(struct f2fs_sb_info *sbi, bool recover);
 int f2fs_sync_fs(struct super_block *sb, int sync);
@@ -3811,9 +3778,8 @@ int f2fs_reserve_new_block(struct dnode_of_data *dn);
 int f2fs_get_block(struct dnode_of_data *dn, pgoff_t index);
 int f2fs_reserve_block(struct dnode_of_data *dn, pgoff_t index);
 struct page *f2fs_get_read_data_page(struct inode *inode, pgoff_t index,
-			blk_opf_t op_flags, bool for_write, pgoff_t *next_pgofs);
-struct page *f2fs_find_data_page(struct inode *inode, pgoff_t index,
-							pgoff_t *next_pgofs);
+			blk_opf_t op_flags, bool for_write);
+struct page *f2fs_find_data_page(struct inode *inode, pgoff_t index);
 struct page *f2fs_get_lock_data_page(struct inode *inode, pgoff_t index,
 			bool for_write);
 struct page *f2fs_get_new_data_page(struct inode *inode,
@@ -3883,8 +3849,6 @@ struct f2fs_stat_info {
 	unsigned long long ext_mem[NR_EXTENT_CACHES];
 	/* for read extent cache */
 	unsigned long long hit_largest;
-	/* for block age extent cache */
-	unsigned long long allocated_data_blocks;
 	int ndirty_node, ndirty_dent, ndirty_meta, ndirty_imeta;
 	int ndirty_data, ndirty_qdata;
 	unsigned int ndirty_dirs, ndirty_files, nquota_files, ndirty_all;
@@ -4161,12 +4125,9 @@ void f2fs_leave_shrinker(struct f2fs_sb_info *sbi);
 /*
  * extent_cache.c
  */
+bool sanity_check_extent_cache(struct inode *inode);
 struct rb_entry *f2fs_lookup_rb_tree(struct rb_root_cached *root,
 				struct rb_entry *cached_re, unsigned int ofs);
-struct rb_node **f2fs_lookup_rb_tree_ext(struct f2fs_sb_info *sbi,
-				struct rb_root_cached *root,
-				struct rb_node **parent,
-				unsigned long long key, bool *left_most);
 struct rb_node **f2fs_lookup_rb_tree_for_insert(struct f2fs_sb_info *sbi,
 				struct rb_root_cached *root,
 				struct rb_node **parent,
@@ -4177,7 +4138,7 @@ struct rb_entry *f2fs_lookup_rb_tree_ret(struct rb_root_cached *root,
 		struct rb_node ***insert_p, struct rb_node **insert_parent,
 		bool force, bool *leftmost);
 bool f2fs_check_rb_tree_consistence(struct f2fs_sb_info *sbi,
-				struct rb_root_cached *root, bool check_key);
+				struct rb_root_cached *root);
 void f2fs_init_extent_tree(struct inode *inode);
 void f2fs_drop_extent_tree(struct inode *inode);
 void f2fs_destroy_extent_node(struct inode *inode);
@@ -4194,16 +4155,6 @@ void f2fs_update_read_extent_cache(struct dnode_of_data *dn);
 void f2fs_update_read_extent_cache_range(struct dnode_of_data *dn,
 			pgoff_t fofs, block_t blkaddr, unsigned int len);
 unsigned int f2fs_shrink_read_extent_tree(struct f2fs_sb_info *sbi,
-			int nr_shrink);
-
-/* block age extent cache ops */
-void f2fs_init_age_extent_tree(struct inode *inode);
-bool f2fs_lookup_age_extent_cache(struct inode *inode, pgoff_t pgofs,
-			struct extent_info *ei);
-void f2fs_update_age_extent_cache(struct dnode_of_data *dn);
-void f2fs_update_age_extent_cache_range(struct dnode_of_data *dn,
-			pgoff_t fofs, unsigned int len);
-unsigned int f2fs_shrink_age_extent_tree(struct f2fs_sb_info *sbi,
 			int nr_shrink);
 
 /*
@@ -4412,7 +4363,7 @@ static inline bool f2fs_disable_compressed_file(struct inode *inode)
 }
 
 #define F2FS_FEATURE_FUNCS(name, flagname) \
-static inline bool f2fs_sb_has_##name(struct f2fs_sb_info *sbi) \
+static inline int f2fs_sb_has_##name(struct f2fs_sb_info *sbi) \
 { \
 	return F2FS_HAS_FEATURE(sbi, F2FS_FEATURE_##flagname); \
 }
@@ -4482,6 +4433,11 @@ static inline bool f2fs_hw_is_readonly(struct f2fs_sb_info *sbi)
 		if (bdev_read_only(FDEV(i).bdev))
 			return true;
 	return false;
+}
+
+static inline bool f2fs_dev_is_readonly(struct f2fs_sb_info *sbi)
+{
+	return f2fs_sb_has_readonly(sbi) || f2fs_hw_is_readonly(sbi);
 }
 
 static inline bool f2fs_lfs_mode(struct f2fs_sb_info *sbi)
@@ -4582,11 +4538,6 @@ static inline void f2fs_handle_page_eio(struct f2fs_sb_info *sbi, pgoff_t ofs,
 		sbi->page_eio_ofs[type] = ofs;
 		sbi->page_eio_cnt[type] = 0;
 	}
-}
-
-static inline bool f2fs_is_readonly(struct f2fs_sb_info *sbi)
-{
-	return f2fs_sb_has_readonly(sbi) || f2fs_readonly(sbi->sb);
 }
 
 #define EFSBADCRC	EBADMSG		/* Bad CRC detected */

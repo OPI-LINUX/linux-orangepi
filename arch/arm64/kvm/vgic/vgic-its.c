@@ -1958,6 +1958,16 @@ static int vgic_its_create(struct kvm_device *dev, u32 type)
 	mutex_init(&its->its_lock);
 	mutex_init(&its->cmd_lock);
 
+	/* Yep, even more trickery for lock ordering... */
+#ifdef CONFIG_LOCKDEP
+	mutex_lock(&dev->kvm->arch.config_lock);
+	mutex_lock(&its->cmd_lock);
+	mutex_lock(&its->its_lock);
+	mutex_unlock(&its->its_lock);
+	mutex_unlock(&its->cmd_lock);
+	mutex_unlock(&dev->kvm->arch.config_lock);
+#endif
+
 	its->vgic_its_base = VGIC_ADDR_UNDEF;
 
 	INIT_LIST_HEAD(&its->device_list);
@@ -2045,6 +2055,13 @@ static int vgic_its_attr_regs_access(struct kvm_device *dev,
 
 	mutex_lock(&dev->kvm->lock);
 
+	if (!lock_all_vcpus(dev->kvm)) {
+		mutex_unlock(&dev->kvm->lock);
+		return -EBUSY;
+	}
+
+	mutex_lock(&dev->kvm->arch.config_lock);
+
 	if (IS_VGIC_ADDR_UNDEF(its->vgic_its_base)) {
 		ret = -ENXIO;
 		goto out;
@@ -2055,11 +2072,6 @@ static int vgic_its_attr_regs_access(struct kvm_device *dev,
 				       offset);
 	if (!region) {
 		ret = -ENXIO;
-		goto out;
-	}
-
-	if (!lock_all_vcpus(dev->kvm)) {
-		ret = -EBUSY;
 		goto out;
 	}
 
@@ -2076,8 +2088,9 @@ static int vgic_its_attr_regs_access(struct kvm_device *dev,
 	} else {
 		*reg = region->its_read(dev->kvm, its, addr, len);
 	}
-	unlock_all_vcpus(dev->kvm);
 out:
+	mutex_unlock(&dev->kvm->arch.config_lock);
+	unlock_all_vcpus(dev->kvm);
 	mutex_unlock(&dev->kvm->lock);
 	return ret;
 }
@@ -2187,7 +2200,7 @@ static int vgic_its_save_ite(struct vgic_its *its, struct its_device *dev,
 	       ((u64)ite->irq->intid << KVM_ITS_ITE_PINTID_SHIFT) |
 		ite->collection->collection_id;
 	val = cpu_to_le64(val);
-	return vgic_write_guest_lock(kvm, gpa, &val, ite_esz);
+	return kvm_write_guest_lock(kvm, gpa, &val, ite_esz);
 }
 
 /**
@@ -2339,7 +2352,7 @@ static int vgic_its_save_dte(struct vgic_its *its, struct its_device *dev,
 	       (itt_addr_field << KVM_ITS_DTE_ITTADDR_SHIFT) |
 		(dev->num_eventid_bits - 1));
 	val = cpu_to_le64(val);
-	return vgic_write_guest_lock(kvm, ptr, &val, dte_esz);
+	return kvm_write_guest_lock(kvm, ptr, &val, dte_esz);
 }
 
 /**
@@ -2526,7 +2539,7 @@ static int vgic_its_save_cte(struct vgic_its *its,
 	       ((u64)collection->target_addr << KVM_ITS_CTE_RDBASE_SHIFT) |
 	       collection->collection_id);
 	val = cpu_to_le64(val);
-	return vgic_write_guest_lock(its->dev->kvm, gpa, &val, esz);
+	return kvm_write_guest_lock(its->dev->kvm, gpa, &val, esz);
 }
 
 /*
@@ -2607,7 +2620,7 @@ static int vgic_its_save_collection_table(struct vgic_its *its)
 	 */
 	val = 0;
 	BUG_ON(cte_esz > sizeof(val));
-	ret = vgic_write_guest_lock(its->dev->kvm, gpa, &val, cte_esz);
+	ret = kvm_write_guest_lock(its->dev->kvm, gpa, &val, cte_esz);
 	return ret;
 }
 
@@ -2749,13 +2762,14 @@ static int vgic_its_ctrl(struct kvm *kvm, struct vgic_its *its, u64 attr)
 		return 0;
 
 	mutex_lock(&kvm->lock);
-	mutex_lock(&its->its_lock);
 
 	if (!lock_all_vcpus(kvm)) {
-		mutex_unlock(&its->its_lock);
 		mutex_unlock(&kvm->lock);
 		return -EBUSY;
 	}
+
+	mutex_lock(&kvm->arch.config_lock);
+	mutex_lock(&its->its_lock);
 
 	switch (attr) {
 	case KVM_DEV_ARM_ITS_CTRL_RESET:
@@ -2769,27 +2783,11 @@ static int vgic_its_ctrl(struct kvm *kvm, struct vgic_its *its, u64 attr)
 		break;
 	}
 
-	unlock_all_vcpus(kvm);
 	mutex_unlock(&its->its_lock);
+	mutex_unlock(&kvm->arch.config_lock);
+	unlock_all_vcpus(kvm);
 	mutex_unlock(&kvm->lock);
 	return ret;
-}
-
-/*
- * kvm_arch_allow_write_without_running_vcpu - allow writing guest memory
- * without the running VCPU when dirty ring is enabled.
- *
- * The running VCPU is required to track dirty guest pages when dirty ring
- * is enabled. Otherwise, the backup bitmap should be used to track the
- * dirty guest pages. When vgic/its tables are being saved, the backup
- * bitmap is used to track the dirty guest pages due to the missed running
- * VCPU in the period.
- */
-bool kvm_arch_allow_write_without_running_vcpu(struct kvm *kvm)
-{
-	struct vgic_dist *dist = &kvm->arch.vgic;
-
-	return dist->table_write_in_progress;
 }
 
 static int vgic_its_set_attr(struct kvm_device *dev,

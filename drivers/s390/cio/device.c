@@ -936,7 +936,7 @@ static int ccw_device_move_to_sch(struct ccw_device *cdev,
 		if (old_enabled) {
 			/* Try to reenable the old subchannel. */
 			spin_lock_irq(old_sch->lock);
-			cio_enable_subchannel(old_sch, (u32)virt_to_phys(old_sch));
+			cio_enable_subchannel(old_sch, (u32)(addr_t)old_sch);
 			spin_unlock_irq(old_sch->lock);
 		}
 		/* Release child reference for new parent. */
@@ -1102,6 +1102,8 @@ static void io_subchannel_verify(struct subchannel *sch)
 	cdev = sch_get_cdev(sch);
 	if (cdev)
 		dev_fsm_event(cdev, DEV_EVENT_VERIFY);
+	else
+		css_schedule_eval(sch->schid);
 }
 
 static void io_subchannel_terminate_path(struct subchannel *sch, u8 mask)

@@ -25,7 +25,7 @@
  * and thus @kobj should have a namespace tag associated with it.  Returns
  * %NULL otherwise.
  */
-const void *kobject_namespace(const struct kobject *kobj)
+const void *kobject_namespace(struct kobject *kobj)
 {
 	const struct kobj_ns_type_operations *ns_ops = kobj_ns_ops(kobj);
 
@@ -45,7 +45,7 @@ const void *kobject_namespace(const struct kobject *kobj)
  * representation of given kobject. Normally used to adjust ownership of
  * objects in a container.
  */
-void kobject_get_ownership(const struct kobject *kobj, kuid_t *uid, kgid_t *gid)
+void kobject_get_ownership(struct kobject *kobj, kuid_t *uid, kgid_t *gid)
 {
 	*uid = GLOBAL_ROOT_UID;
 	*gid = GLOBAL_ROOT_GID;
@@ -702,7 +702,7 @@ static void kobject_release(struct kref *kref)
 {
 	struct kobject *kobj = container_of(kref, struct kobject, kref);
 #ifdef CONFIG_DEBUG_KOBJECT_RELEASE
-	unsigned long delay = HZ + HZ * get_random_u32_below(4);
+	unsigned long delay = HZ + HZ * prandom_u32_max(4);
 	pr_info("kobject: '%s' (%p): %s, parent %p (delayed %ld)\n",
 		 kobject_name(kobj), kobj, __func__, kobj->parent, delay);
 	INIT_DELAYED_WORK(&kobj->release, kobject_delayed_cleanup);
@@ -842,9 +842,6 @@ EXPORT_SYMBOL_GPL(kobj_sysfs_ops);
 /**
  * kset_register() - Initialize and add a kset.
  * @k: kset.
- *
- * NOTE: On error, the kset.kobj.name allocated by() kobj_set_name()
- * is freed, it can not be used any more.
  */
 int kset_register(struct kset *k)
 {
@@ -855,12 +852,8 @@ int kset_register(struct kset *k)
 
 	kset_init(k);
 	err = kobject_add_internal(&k->kobj);
-	if (err) {
-		kfree_const(k->kobj.name);
-		/* Set it to NULL to avoid accessing bad pointer in callers. */
-		k->kobj.name = NULL;
+	if (err)
 		return err;
-	}
 	kobject_uevent(&k->kobj, KOBJ_ADD);
 	return 0;
 }
@@ -915,7 +908,7 @@ static void kset_release(struct kobject *kobj)
 	kfree(kset);
 }
 
-static void kset_get_ownership(const struct kobject *kobj, kuid_t *uid, kgid_t *gid)
+static void kset_get_ownership(struct kobject *kobj, kuid_t *uid, kgid_t *gid)
 {
 	if (kobj->parent)
 		kobject_get_ownership(kobj->parent, uid, gid);
@@ -1047,7 +1040,7 @@ int kobj_ns_type_registered(enum kobj_ns_type type)
 	return registered;
 }
 
-const struct kobj_ns_type_operations *kobj_child_ns_ops(const struct kobject *parent)
+const struct kobj_ns_type_operations *kobj_child_ns_ops(struct kobject *parent)
 {
 	const struct kobj_ns_type_operations *ops = NULL;
 
@@ -1057,7 +1050,7 @@ const struct kobj_ns_type_operations *kobj_child_ns_ops(const struct kobject *pa
 	return ops;
 }
 
-const struct kobj_ns_type_operations *kobj_ns_ops(const struct kobject *kobj)
+const struct kobj_ns_type_operations *kobj_ns_ops(struct kobject *kobj)
 {
 	return kobj_child_ns_ops(kobj->parent);
 }

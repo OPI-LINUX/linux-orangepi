@@ -16,11 +16,9 @@
 	compatible = "tanix,tx6s", "allwinner,sun50i-h616";
 
 	aliases {
-		mmc0 = &mmc0;
-		mmc2 = &mmc2;
 		ethernet0 = &emac1;
-		ethernet1 = &wlan;
 		serial0 = &uart0;
+		ethernet1 = &wlan;
 	};
 
 	chosen {
@@ -35,6 +33,17 @@
 			hdmi_con_in: endpoint {
 				remote-endpoint = <&hdmi_out_con>;
 			};
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led-0 {
+			function = LED_FUNCTION_POWER;
+			color = <LED_COLOR_ID_RED>;
+			gpios = <&pio 2 12 GPIO_ACTIVE_HIGH>; /* PC12 */
+			default-state = "on";
 		};
 	};
 
@@ -71,10 +80,7 @@
 
 	wifi_pwrseq: wifi_pwrseq {
 		compatible = "mmc-pwrseq-simple";
-		clocks = <&rtc CLK_OSC32K_FANOUT>;
-		clock-names = "ext_clock";
-		pinctrl-names = "default";
-		pinctrl-0 = <&clk_losc>; /* PG10 with MUX3 set */
+		post-power-on-delay-ms = <200>;
 	};
 
 	openvfd {
@@ -155,6 +161,7 @@
 
 &mmc0 {
 	vmmc-supply = <&reg_dcdce>;
+	//cd-gpios = <&pio 5 6 GPIO_ACTIVE_LOW>; /* PF6 */
 	broken-cd;
 	bus-width = <4>;
 	status = "okay";
@@ -170,9 +177,12 @@
 
 	wlan: wifi@1 {
 		reg = <1>;
+		compatible = "xradio,xr819",
+			     "brcm,bcm4329-fmac";
 		interrupt-parent = <&pio>;
 		interrupts = <6 15 IRQ_TYPE_EDGE_RISING>; /* PG15 WL_HOSTWAKE*/
 		interrupt-names = "host-wake";
+		local-mac-address = [dc 44 6d c0 ff 02];
 	};
 };
 

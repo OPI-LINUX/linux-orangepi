@@ -2927,14 +2927,15 @@ static int megasas_generic_reset(struct scsi_cmnd *scmd)
  * Sets the FW busy flag and reduces the host->can_queue if the
  * cmd has not been completed within the timeout period.
  */
-static enum scsi_timeout_action megasas_reset_timer(struct scsi_cmnd *scmd)
+static enum
+blk_eh_timer_return megasas_reset_timer(struct scsi_cmnd *scmd)
 {
 	struct megasas_instance *instance;
 	unsigned long flags;
 
 	if (time_after(jiffies, scmd->jiffies_at_alloc +
 				(scmd_timeout * 2) * HZ)) {
-		return SCSI_EH_NOT_HANDLED;
+		return BLK_EH_DONE;
 	}
 
 	instance = (struct megasas_instance *)scmd->device->host->hostdata;
@@ -2948,7 +2949,7 @@ static enum scsi_timeout_action megasas_reset_timer(struct scsi_cmnd *scmd)
 
 		spin_unlock_irqrestore(instance->host->host_lock, flags);
 	}
-	return SCSI_EH_RESET_TIMER;
+	return BLK_EH_RESET_TIMER;
 }
 
 /**
@@ -3298,7 +3299,7 @@ fw_crash_buffer_show(struct device *cdev,
 
 	spin_lock_irqsave(&instance->crashdump_lock, flags);
 	buff_offset = instance->fw_crash_buffer_offset;
-	if (!instance->crash_dump_buf &&
+	if (!instance->crash_dump_buf ||
 		!((instance->fw_crash_state == AVAILABLE) ||
 		(instance->fw_crash_state == COPYING))) {
 		dev_err(&instance->pdev->dev,

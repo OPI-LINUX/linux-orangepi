@@ -1416,7 +1416,7 @@ cifs_push_posix_locks(struct cifsFileInfo *cfile)
 	struct inode *inode = d_inode(cfile->dentry);
 	struct cifs_tcon *tcon = tlink_tcon(cfile->tlink);
 	struct file_lock *flock;
-	struct file_lock_context *flctx = locks_inode_context(inode);
+	struct file_lock_context *flctx = inode->i_flctx;
 	unsigned int count = 0, i;
 	int rc = 0, xid, type;
 	struct list_head locks_to_send, *el;
@@ -2649,21 +2649,6 @@ wdata_send_pages(struct cifs_writedata *wdata, unsigned int nr_pages,
 	return rc;
 }
 
-static int
-cifs_writepage_locked(struct page *page, struct writeback_control *wbc);
-
-static int cifs_write_one_page(struct page *page, struct writeback_control *wbc,
-		void *data)
-{
-	struct address_space *mapping = data;
-	int ret;
-
-	ret = cifs_writepage_locked(page, wbc);
-	unlock_page(page);
-	mapping_set_error(mapping, ret);
-	return ret;
-}
-
 static int cifs_writepages(struct address_space *mapping,
 			   struct writeback_control *wbc)
 {
@@ -2680,11 +2665,10 @@ static int cifs_writepages(struct address_space *mapping,
 
 	/*
 	 * If wsize is smaller than the page cache size, default to writing
-	 * one page at a time.
+	 * one page at a time via cifs_writepage
 	 */
 	if (cifs_sb->ctx->wsize < PAGE_SIZE)
-		return write_cache_pages(mapping, wbc, cifs_write_one_page,
-				mapping);
+		return generic_writepages(mapping, wbc);
 
 	xid = get_xid();
 	if (wbc->range_cyclic) {
@@ -2868,6 +2852,13 @@ retry_write:
 	end_page_writeback(page);
 	put_page(page);
 	free_xid(xid);
+	return rc;
+}
+
+static int cifs_writepage(struct page *page, struct writeback_control *wbc)
+{
+	int rc = cifs_writepage_locked(page, wbc);
+	unlock_page(page);
 	return rc;
 }
 
@@ -5095,7 +5086,9 @@ void cifs_oplock_break(struct work_struct *work)
 	struct cifs_tcon *tcon = tlink_tcon(cfile->tlink);
 	struct TCP_Server_Info *server = tcon->ses->server;
 	int rc = 0;
-	bool purge_cache = false;
+	bool purge_cache = false, oplock_break_cancelled;
+	__u64 persistent_fid, volatile_fid;
+	__u16 net_fid;
 
 	wait_on_bit(&cinode->flags, CIFS_INODE_PENDING_WRITERS,
 			TASK_UNINTERRUPTIBLE);
@@ -5132,18 +5125,32 @@ void cifs_oplock_break(struct work_struct *work)
 
 oplock_break_ack:
 	/*
+	 * When oplock break is received and there are no active
+	 * file handles but cached, then schedule deferred close immediately.
+	 * So, new open will not use cached handle.
+	 */
+
+	if (!CIFS_CACHE_HANDLE(cinode) && !list_empty(&cinode->deferred_closes))
+		cifs_close_deferred_file(cinode);
+
+	persistent_fid = cfile->fid.persistent_fid;
+	volatile_fid = cfile->fid.volatile_fid;
+	net_fid = cfile->fid.netfid;
+	oplock_break_cancelled = cfile->oplock_break_cancelled;
+
+	_cifsFileInfo_put(cfile, false /* do not wait for ourself */, false);
+	/*
 	 * releasing stale oplock after recent reconnect of smb session using
 	 * a now incorrect file handle is not a data integrity issue but do
 	 * not bother sending an oplock release if session to server still is
 	 * disconnected since oplock already released by the server
 	 */
-	if (!cfile->oplock_break_cancelled) {
-		rc = tcon->ses->server->ops->oplock_response(tcon, &cfile->fid,
-							     cinode);
+	if (!oplock_break_cancelled) {
+		rc = tcon->ses->server->ops->oplock_response(tcon, persistent_fid,
+				volatile_fid, net_fid, cinode);
 		cifs_dbg(FYI, "Oplock release rc = %d\n", rc);
 	}
 
-	_cifsFileInfo_put(cfile, false /* do not wait for ourself */, false);
 	cifs_done_oplock_break(cinode);
 }
 
@@ -5243,6 +5250,7 @@ static bool cifs_dirty_folio(struct address_space *mapping, struct folio *folio)
 const struct address_space_operations cifs_addr_ops = {
 	.read_folio = cifs_read_folio,
 	.readahead = cifs_readahead,
+	.writepage = cifs_writepage,
 	.writepages = cifs_writepages,
 	.write_begin = cifs_write_begin,
 	.write_end = cifs_write_end,
@@ -5251,10 +5259,10 @@ const struct address_space_operations cifs_addr_ops = {
 	.direct_IO = cifs_direct_io,
 	.invalidate_folio = cifs_invalidate_folio,
 	.launder_folio = cifs_launder_folio,
-	.migrate_folio = filemap_migrate_folio,
 	/*
-	 * TODO: investigate and if useful we could add an is_dirty_writeback
-	 * helper if needed
+	 * TODO: investigate and if useful we could add an cifs_migratePage
+	 * helper (under an CONFIG_MIGRATION) in the future, and also
+	 * investigate and add an is_dirty_writeback helper if needed
 	 */
 	.swap_activate = cifs_swap_activate,
 	.swap_deactivate = cifs_swap_deactivate,
@@ -5267,6 +5275,7 @@ const struct address_space_operations cifs_addr_ops = {
  */
 const struct address_space_operations cifs_addr_ops_smallbuf = {
 	.read_folio = cifs_read_folio,
+	.writepage = cifs_writepage,
 	.writepages = cifs_writepages,
 	.write_begin = cifs_write_begin,
 	.write_end = cifs_write_end,
@@ -5274,5 +5283,4 @@ const struct address_space_operations cifs_addr_ops_smallbuf = {
 	.release_folio = cifs_release_folio,
 	.invalidate_folio = cifs_invalidate_folio,
 	.launder_folio = cifs_launder_folio,
-	.migrate_folio = filemap_migrate_folio,
 };

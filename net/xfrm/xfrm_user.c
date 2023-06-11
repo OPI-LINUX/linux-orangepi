@@ -515,8 +515,7 @@ static int attach_aead(struct xfrm_state *x, struct nlattr *rta,
 }
 
 static inline int xfrm_replay_verify_len(struct xfrm_replay_state_esn *replay_esn,
-					 struct nlattr *rp,
-					 struct netlink_ext_ack *extack)
+					 struct nlattr *rp)
 {
 	struct xfrm_replay_state_esn *up;
 	unsigned int ulen;
@@ -529,25 +528,13 @@ static inline int xfrm_replay_verify_len(struct xfrm_replay_state_esn *replay_es
 
 	/* Check the overall length and the internal bitmap length to avoid
 	 * potential overflow. */
-	if (nla_len(rp) < (int)ulen) {
-		NL_SET_ERR_MSG(extack, "ESN attribute is too short");
+	if (nla_len(rp) < (int)ulen ||
+	    xfrm_replay_state_esn_len(replay_esn) != ulen ||
+	    replay_esn->bmp_len != up->bmp_len)
 		return -EINVAL;
-	}
 
-	if (xfrm_replay_state_esn_len(replay_esn) != ulen) {
-		NL_SET_ERR_MSG(extack, "New ESN size doesn't match the existing SA's ESN size");
+	if (up->replay_window > up->bmp_len * sizeof(__u32) * 8)
 		return -EINVAL;
-	}
-
-	if (replay_esn->bmp_len != up->bmp_len) {
-		NL_SET_ERR_MSG(extack, "New ESN bitmap size doesn't match the existing SA's ESN bitmap");
-		return -EINVAL;
-	}
-
-	if (up->replay_window > up->bmp_len * sizeof(__u32) * 8) {
-		NL_SET_ERR_MSG(extack, "ESN replay window is longer than the bitmap");
-		return -EINVAL;
-	}
 
 	return 0;
 }
@@ -875,12 +862,12 @@ static int xfrm_del_sa(struct sk_buff *skb, struct nlmsghdr *nlh,
 		goto out;
 
 	if (xfrm_state_kern(x)) {
-		NL_SET_ERR_MSG(extack, "SA is in use by tunnels");
 		err = -EPERM;
 		goto out;
 	}
 
 	err = xfrm_state_delete(x);
+
 	if (err < 0)
 		goto out;
 
@@ -956,8 +943,6 @@ static int copy_user_offload(struct xfrm_dev_offload *xso, struct sk_buff *skb)
 	xuo->ifindex = xso->dev->ifindex;
 	if (xso->dir == XFRM_DEV_OFFLOAD_IN)
 		xuo->flags = XFRM_OFFLOAD_INBOUND;
-	if (xso->type == XFRM_DEV_OFFLOAD_PACKET)
-		xuo->flags |= XFRM_OFFLOAD_PACKET;
 
 	return 0;
 }
@@ -1406,28 +1391,20 @@ static int xfrm_set_spdinfo(struct sk_buff *skb, struct nlmsghdr *nlh,
 	if (attrs[XFRMA_SPD_IPV4_HTHRESH]) {
 		struct nlattr *rta = attrs[XFRMA_SPD_IPV4_HTHRESH];
 
-		if (nla_len(rta) < sizeof(*thresh4)) {
-			NL_SET_ERR_MSG(extack, "Invalid SPD_IPV4_HTHRESH attribute length");
+		if (nla_len(rta) < sizeof(*thresh4))
 			return -EINVAL;
-		}
 		thresh4 = nla_data(rta);
-		if (thresh4->lbits > 32 || thresh4->rbits > 32) {
-			NL_SET_ERR_MSG(extack, "Invalid hash threshold (must be <= 32 for IPv4)");
+		if (thresh4->lbits > 32 || thresh4->rbits > 32)
 			return -EINVAL;
-		}
 	}
 	if (attrs[XFRMA_SPD_IPV6_HTHRESH]) {
 		struct nlattr *rta = attrs[XFRMA_SPD_IPV6_HTHRESH];
 
-		if (nla_len(rta) < sizeof(*thresh6)) {
-			NL_SET_ERR_MSG(extack, "Invalid SPD_IPV6_HTHRESH attribute length");
+		if (nla_len(rta) < sizeof(*thresh6))
 			return -EINVAL;
-		}
 		thresh6 = nla_data(rta);
-		if (thresh6->lbits > 128 || thresh6->rbits > 128) {
-			NL_SET_ERR_MSG(extack, "Invalid hash threshold (must be <= 128 for IPv6)");
+		if (thresh6->lbits > 128 || thresh6->rbits > 128)
 			return -EINVAL;
-		}
 	}
 
 	if (thresh4 || thresh6) {
@@ -1570,7 +1547,7 @@ static int xfrm_alloc_userspi(struct sk_buff *skb, struct nlmsghdr *nlh,
 	u32 if_id = 0;
 
 	p = nlmsg_data(nlh);
-	err = verify_spi_info(p->info.id.proto, p->min, p->max, extack);
+	err = verify_spi_info(p->info.id.proto, p->min, p->max);
 	if (err)
 		goto out_noput;
 
@@ -1598,12 +1575,10 @@ static int xfrm_alloc_userspi(struct sk_buff *skb, struct nlmsghdr *nlh,
 				  &p->info.saddr, 1,
 				  family);
 	err = -ENOENT;
-	if (!x) {
-		NL_SET_ERR_MSG(extack, "Target ACQUIRE not found");
+	if (x == NULL)
 		goto out_noput;
-	}
 
-	err = xfrm_alloc_spi(x, p->min, p->max, extack);
+	err = xfrm_alloc_spi(x, p->min, p->max);
 	if (err)
 		goto out;
 
@@ -1768,7 +1743,7 @@ static void copy_templates(struct xfrm_policy *xp, struct xfrm_user_tmpl *ut,
 }
 
 static int validate_tmpl(int nr, struct xfrm_user_tmpl *ut, u16 family,
-			 struct netlink_ext_ack *extack)
+			 int dir, struct netlink_ext_ack *extack)
 {
 	u16 prev_family;
 	int i;
@@ -1794,6 +1769,10 @@ static int validate_tmpl(int nr, struct xfrm_user_tmpl *ut, u16 family,
 		switch (ut[i].mode) {
 		case XFRM_MODE_TUNNEL:
 		case XFRM_MODE_BEET:
+			if (ut[i].optional && dir == XFRM_POLICY_OUT) {
+				NL_SET_ERR_MSG(extack, "Mode in optional template not allowed in outbound policy");
+				return -EINVAL;
+			}
 			break;
 		default:
 			if (ut[i].family != prev_family) {
@@ -1831,7 +1810,7 @@ static int validate_tmpl(int nr, struct xfrm_user_tmpl *ut, u16 family,
 }
 
 static int copy_from_user_tmpl(struct xfrm_policy *pol, struct nlattr **attrs,
-			       struct netlink_ext_ack *extack)
+			       int dir, struct netlink_ext_ack *extack)
 {
 	struct nlattr *rt = attrs[XFRMA_TMPL];
 
@@ -1842,7 +1821,7 @@ static int copy_from_user_tmpl(struct xfrm_policy *pol, struct nlattr **attrs,
 		int nr = nla_len(rt) / sizeof(*utmpl);
 		int err;
 
-		err = validate_tmpl(nr, utmpl, pol->family, extack);
+		err = validate_tmpl(nr, utmpl, pol->family, dir, extack);
 		if (err)
 			return err;
 
@@ -1919,7 +1898,7 @@ static struct xfrm_policy *xfrm_policy_construct(struct net *net,
 	if (err)
 		goto error;
 
-	if (!(err = copy_from_user_tmpl(xp, attrs, extack)))
+	if (!(err = copy_from_user_tmpl(xp, attrs, p->dir, extack)))
 		err = copy_from_user_sec_ctx(xp, attrs);
 	if (err)
 		goto error;
@@ -1928,15 +1907,6 @@ static struct xfrm_policy *xfrm_policy_construct(struct net *net,
 
 	if (attrs[XFRMA_IF_ID])
 		xp->if_id = nla_get_u32(attrs[XFRMA_IF_ID]);
-
-	/* configure the hardware if offload is requested */
-	if (attrs[XFRMA_OFFLOAD_DEV]) {
-		err = xfrm_dev_policy_add(net, xp,
-					  nla_data(attrs[XFRMA_OFFLOAD_DEV]),
-					  p->dir, extack);
-		if (err)
-			goto error;
-	}
 
 	return xp;
  error:
@@ -1977,7 +1947,6 @@ static int xfrm_add_policy(struct sk_buff *skb, struct nlmsghdr *nlh,
 	xfrm_audit_policy_add(xp, err ? 0 : 1, true);
 
 	if (err) {
-		xfrm_dev_policy_delete(xp);
 		security_xfrm_policy_free(xp->security);
 		kfree(xp);
 		return err;
@@ -2090,8 +2059,6 @@ static int dump_one_policy(struct xfrm_policy *xp, int dir, int count, void *ptr
 		err = xfrm_mark_put(skb, &xp->mark);
 	if (!err)
 		err = xfrm_if_id_put(skb, xp->if_id);
-	if (!err && xp->xdo.dev)
-		err = copy_user_offload(&xp->xdo, skb);
 	if (err) {
 		nlmsg_cancel(skb, nlh);
 		return err;
@@ -2507,16 +2474,12 @@ static int xfrm_new_ae(struct sk_buff *skb, struct nlmsghdr *nlh,
 	struct nlattr *et = attrs[XFRMA_ETIMER_THRESH];
 	struct nlattr *rt = attrs[XFRMA_REPLAY_THRESH];
 
-	if (!lt && !rp && !re && !et && !rt) {
-		NL_SET_ERR_MSG(extack, "Missing required attribute for AE");
+	if (!lt && !rp && !re && !et && !rt)
 		return err;
-	}
 
 	/* pedantic mode - thou shalt sayeth replaceth */
-	if (!(nlh->nlmsg_flags & NLM_F_REPLACE)) {
-		NL_SET_ERR_MSG(extack, "NLM_F_REPLACE flag is required");
+	if (!(nlh->nlmsg_flags&NLM_F_REPLACE))
 		return err;
-	}
 
 	mark = xfrm_mark_get(attrs, &m);
 
@@ -2524,12 +2487,10 @@ static int xfrm_new_ae(struct sk_buff *skb, struct nlmsghdr *nlh,
 	if (x == NULL)
 		return -ESRCH;
 
-	if (x->km.state != XFRM_STATE_VALID) {
-		NL_SET_ERR_MSG(extack, "SA must be in VALID state");
+	if (x->km.state != XFRM_STATE_VALID)
 		goto out;
-	}
 
-	err = xfrm_replay_verify_len(x->replay_esn, re, extack);
+	err = xfrm_replay_verify_len(x->replay_esn, re);
 	if (err)
 		goto out;
 
@@ -2664,11 +2625,8 @@ static int xfrm_add_sa_expire(struct sk_buff *skb, struct nlmsghdr *nlh,
 
 	spin_lock_bh(&x->lock);
 	err = -EINVAL;
-	if (x->km.state != XFRM_STATE_VALID) {
-		NL_SET_ERR_MSG(extack, "SA must be in VALID state");
+	if (x->km.state != XFRM_STATE_VALID)
 		goto out;
-	}
-
 	km_state_expired(x, ue->hard, nlh->nlmsg_pid);
 
 	if (ue->hard) {
@@ -2748,8 +2706,7 @@ nomem:
 #ifdef CONFIG_XFRM_MIGRATE
 static int copy_from_user_migrate(struct xfrm_migrate *ma,
 				  struct xfrm_kmaddress *k,
-				  struct nlattr **attrs, int *num,
-				  struct netlink_ext_ack *extack)
+				  struct nlattr **attrs, int *num)
 {
 	struct nlattr *rt = attrs[XFRMA_MIGRATE];
 	struct xfrm_user_migrate *um;
@@ -2768,10 +2725,8 @@ static int copy_from_user_migrate(struct xfrm_migrate *ma,
 	um = nla_data(rt);
 	num_migrate = nla_len(rt) / sizeof(*um);
 
-	if (num_migrate <= 0 || num_migrate > XFRM_MAX_DEPTH) {
-		NL_SET_ERR_MSG(extack, "Invalid number of SAs to migrate, must be 0 < num <= XFRM_MAX_DEPTH (6)");
+	if (num_migrate <= 0 || num_migrate > XFRM_MAX_DEPTH)
 		return -EINVAL;
-	}
 
 	for (i = 0; i < num_migrate; i++, um++, ma++) {
 		memcpy(&ma->old_daddr, &um->old_daddr, sizeof(ma->old_daddr));
@@ -2804,10 +2759,8 @@ static int xfrm_do_migrate(struct sk_buff *skb, struct nlmsghdr *nlh,
 	struct xfrm_encap_tmpl  *encap = NULL;
 	u32 if_id = 0;
 
-	if (!attrs[XFRMA_MIGRATE]) {
-		NL_SET_ERR_MSG(extack, "Missing required MIGRATE attribute");
+	if (attrs[XFRMA_MIGRATE] == NULL)
 		return -EINVAL;
-	}
 
 	kmp = attrs[XFRMA_KMADDRESS] ? &km : NULL;
 
@@ -2815,7 +2768,7 @@ static int xfrm_do_migrate(struct sk_buff *skb, struct nlmsghdr *nlh,
 	if (err)
 		return err;
 
-	err = copy_from_user_migrate(m, kmp, attrs, &n, extack);
+	err = copy_from_user_migrate((struct xfrm_migrate *)m, kmp, attrs, &n);
 	if (err)
 		return err;
 
@@ -2832,8 +2785,7 @@ static int xfrm_do_migrate(struct sk_buff *skb, struct nlmsghdr *nlh,
 	if (attrs[XFRMA_IF_ID])
 		if_id = nla_get_u32(attrs[XFRMA_IF_ID]);
 
-	err = xfrm_migrate(&pi->sel, pi->dir, type, m, n, kmp, net, encap,
-			   if_id, extack);
+	err = xfrm_migrate(&pi->sel, pi->dir, type, m, n, kmp, net, encap, if_id);
 
 	kfree(encap);
 
@@ -3430,8 +3382,6 @@ static int build_acquire(struct sk_buff *skb, struct xfrm_state *x,
 		err = xfrm_mark_put(skb, &xp->mark);
 	if (!err)
 		err = xfrm_if_id_put(skb, xp->if_id);
-	if (!err && xp->xdo.dev)
-		err = copy_user_offload(&xp->xdo, skb);
 	if (err) {
 		nlmsg_cancel(skb, nlh);
 		return err;
@@ -3497,7 +3447,7 @@ static struct xfrm_policy *xfrm_compile_policy(struct sock *sk, int opt,
 		return NULL;
 
 	nr = ((len - sizeof(*p)) / sizeof(*ut));
-	if (validate_tmpl(nr, ut, p->sel.family, NULL))
+	if (validate_tmpl(nr, ut, p->sel.family, p->dir, NULL))
 		return NULL;
 
 	if (p->dir > XFRM_POLICY_OUT)
@@ -3550,8 +3500,6 @@ static int build_polexpire(struct sk_buff *skb, struct xfrm_policy *xp,
 		err = xfrm_mark_put(skb, &xp->mark);
 	if (!err)
 		err = xfrm_if_id_put(skb, xp->if_id);
-	if (!err && xp->xdo.dev)
-		err = copy_user_offload(&xp->xdo, skb);
 	if (err) {
 		nlmsg_cancel(skb, nlh);
 		return err;
@@ -3635,8 +3583,6 @@ static int xfrm_notify_policy(struct xfrm_policy *xp, int dir, const struct km_e
 		err = xfrm_mark_put(skb, &xp->mark);
 	if (!err)
 		err = xfrm_if_id_put(skb, xp->if_id);
-	if (!err && xp->xdo.dev)
-		err = copy_user_offload(&xp->xdo, skb);
 	if (err)
 		goto out_free_skb;
 

@@ -9,7 +9,6 @@
 #include <linux/vmalloc.h>
 
 #include <drm/drm.h>
-#include <drm/drm_fb_helper.h>
 #include <drm/drm_gem.h>
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_prime.h>
@@ -261,9 +260,6 @@ static int rockchip_drm_gem_object_mmap(struct drm_gem_object *obj,
 		ret = rockchip_drm_gem_object_mmap_iommu(obj, vma);
 	else
 		ret = rockchip_drm_gem_object_mmap_dma(obj, vma);
-
-	if (ret)
-		drm_gem_vm_close(vma);
 
 	return ret;
 }

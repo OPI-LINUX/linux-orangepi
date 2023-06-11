@@ -5319,14 +5319,14 @@ EXPORT_SYMBOL_GPL(sctp_for_each_endpoint);
 
 int sctp_transport_lookup_process(sctp_callback_t cb, struct net *net,
 				  const union sctp_addr *laddr,
-				  const union sctp_addr *paddr, void *p, int dif)
+				  const union sctp_addr *paddr, void *p)
 {
 	struct sctp_transport *transport;
 	struct sctp_endpoint *ep;
 	int err = -ENOENT;
 
 	rcu_read_lock();
-	transport = sctp_addrs_lookup_transport(net, laddr, paddr, dif, dif);
+	transport = sctp_addrs_lookup_transport(net, laddr, paddr);
 	if (!transport) {
 		rcu_read_unlock();
 		return err;
@@ -8327,7 +8327,7 @@ static int sctp_get_port_local(struct sock *sk, union sctp_addr *addr)
 
 		inet_get_local_port_range(net, &low, &high);
 		remaining = (high - low) + 1;
-		rover = get_random_u32_below(remaining) + low;
+		rover = prandom_u32_max(remaining) + low;
 
 		do {
 			rover++;
@@ -8402,7 +8402,6 @@ pp_found:
 		 * in an endpoint.
 		 */
 		sk_for_each_bound(sk2, &pp->owner) {
-			int bound_dev_if2 = READ_ONCE(sk2->sk_bound_dev_if);
 			struct sctp_sock *sp2 = sctp_sk(sk2);
 			struct sctp_endpoint *ep2 = sp2->ep;
 
@@ -8413,9 +8412,7 @@ pp_found:
 			     uid_eq(uid, sock_i_uid(sk2))))
 				continue;
 
-			if ((!sk->sk_bound_dev_if || !bound_dev_if2 ||
-			     sk->sk_bound_dev_if == bound_dev_if2) &&
-			    sctp_bind_addr_conflict(&ep2->base.bind_addr,
+			if (sctp_bind_addr_conflict(&ep2->base.bind_addr,
 						    addr, sp2, sp)) {
 				ret = 1;
 				goto fail_unlock;

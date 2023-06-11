@@ -58,8 +58,7 @@
 		led-0 {
 			color = <LED_COLOR_ID_BLUE>;
 			gpios = <&gpio3 RK_PA5 GPIO_ACTIVE_LOW>;
-			function = LED_FUNCTION_DISK_ACTIVITY;
-			linux,default-trigger = "mmc0";
+			linux,default-trigger = "heartbeat";
 		};
 	};
 
@@ -381,28 +380,11 @@
 	status = "okay";
 };
 
-&usb_host0_ehci {
-	status = "okay";
-};
-
 &usbdrd3 {
-	status = "okay";
-};
-
-&usbdrd_dwc3 {
 	dr_mode = "host";
 	status = "okay";
 };
 
-&usb3phy {
+&usb_host0_ehci {
 	status = "okay";
 };
-
-&usb3phy_utmi {
-	status = "okay";
-};
-
-&usb3phy_pipe {
-	status = "okay";
-};
-

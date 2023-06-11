@@ -743,6 +743,7 @@ static void cifs_umount_begin(struct super_block *sb)
 	spin_unlock(&tcon->tc_lock);
 	spin_unlock(&cifs_tcp_ses_lock);
 
+	cifs_close_all_deferred_files(tcon);
 	/* cancel_brl_requests(tcon); */ /* BB mark all brl mids as exiting */
 	/* cancel_notify_requests(tcon); */
 	if (tcon->ses && tcon->ses->server) {
@@ -756,6 +757,20 @@ static void cifs_umount_begin(struct super_block *sb)
 	}
 
 	return;
+}
+
+static int cifs_freeze(struct super_block *sb)
+{
+	struct cifs_sb_info *cifs_sb = CIFS_SB(sb);
+	struct cifs_tcon *tcon;
+
+	if (cifs_sb == NULL)
+		return 0;
+
+	tcon = cifs_sb_master_tcon(cifs_sb);
+
+	cifs_close_all_deferred_files(tcon);
+	return 0;
 }
 
 #ifdef CONFIG_CIFS_STATS2
@@ -796,6 +811,7 @@ static const struct super_operations cifs_super_ops = {
 	as opens */
 	.show_options = cifs_show_options,
 	.umount_begin   = cifs_umount_begin,
+	.freeze_fs      = cifs_freeze,
 #ifdef CONFIG_CIFS_STATS2
 	.show_stats = cifs_show_stats,
 #endif
@@ -894,6 +910,12 @@ cifs_smb3_do_mount(struct file_system_type *fs_type,
 		goto out;
 	}
 	rc = smb3_fs_context_dup(cifs_sb->ctx, old_ctx);
+	if (rc) {
+		root = ERR_PTR(rc);
+		goto out;
+	}
+
+	rc = cifs_setup_volume_info(cifs_sb->ctx, NULL, NULL);
 	if (rc) {
 		root = ERR_PTR(rc);
 		goto out;
@@ -1136,8 +1158,6 @@ const struct inode_operations cifs_dir_inode_ops = {
 	.symlink = cifs_symlink,
 	.mknod   = cifs_mknod,
 	.listxattr = cifs_listxattr,
-	.get_acl = cifs_get_acl,
-	.set_acl = cifs_set_acl,
 };
 
 const struct inode_operations cifs_file_inode_ops = {
@@ -1146,8 +1166,6 @@ const struct inode_operations cifs_file_inode_ops = {
 	.permission = cifs_permission,
 	.listxattr = cifs_listxattr,
 	.fiemap = cifs_fiemap,
-	.get_acl = cifs_get_acl,
-	.set_acl = cifs_set_acl,
 };
 
 const char *cifs_get_link(struct dentry *dentry, struct inode *inode,

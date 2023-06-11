@@ -276,6 +276,26 @@ static void inc_enq(struct xhci_hcd *xhci, struct xhci_ring *ring,
 	trace_xhci_inc_enq(ring);
 }
 
+static int xhci_num_trbs_to(struct xhci_segment *start_seg, union xhci_trb *start,
+			    struct xhci_segment *end_seg, union xhci_trb *end,
+			    unsigned int num_segs)
+{
+	union xhci_trb *last_on_seg;
+	int num = 0;
+	int i = 0;
+
+	do {
+		if (start_seg == end_seg && end >= start)
+			return num + (end - start);
+		last_on_seg = &start_seg->trbs[TRBS_PER_SEGMENT - 1];
+		num += last_on_seg - start;
+		start_seg = start_seg->next;
+		start = start_seg->trbs;
+	} while (i++ <= num_segs);
+
+	return -EINVAL;
+}
+
 /*
  * Check to see if there's room to enqueue num_trbs on the ring and make sure
  * enqueue pointer will not advance into dequeue segment. See rules above.
@@ -896,7 +916,7 @@ done:
 }
 
 static int xhci_handle_halted_endpoint(struct xhci_hcd *xhci,
-				struct xhci_virt_ep *ep,
+				struct xhci_virt_ep *ep, unsigned int stream_id,
 				struct xhci_td *td,
 				enum xhci_ep_reset_type reset_type)
 {
@@ -1110,7 +1130,8 @@ static void xhci_handle_cmd_stop_ep(struct xhci_hcd *xhci, int slot_id,
 					td->status = -EPROTO;
 			}
 			/* reset ep, reset handler cleans up cancelled tds */
-			err = xhci_handle_halted_endpoint(xhci, ep, td, reset_type);
+			err = xhci_handle_halted_endpoint(xhci, ep, 0, td,
+							  reset_type);
 			if (err)
 				break;
 			ep->ep_state &= ~EP_STOP_CMD_PENDING;
@@ -2140,6 +2161,7 @@ static int finish_td(struct xhci_hcd *xhci, struct xhci_virt_ep *ep,
 		     u32 trb_comp_code)
 {
 	struct xhci_ep_ctx *ep_ctx;
+	int trbs_freed;
 
 	ep_ctx = xhci_get_ep_ctx(xhci, ep->vdev->out_ctx, ep->ep_index);
 
@@ -2185,7 +2207,8 @@ static int finish_td(struct xhci_hcd *xhci, struct xhci_virt_ep *ep,
 		}
 		/* Almost same procedure as for STALL_ERROR below */
 		xhci_clear_hub_tt_buffer(xhci, td, ep);
-		xhci_handle_halted_endpoint(xhci, ep, td, EP_HARD_RESET);
+		xhci_handle_halted_endpoint(xhci, ep, ep_ring->stream_id, td,
+					    EP_HARD_RESET);
 		return 0;
 	case COMP_STALL_ERROR:
 		/*
@@ -2201,7 +2224,8 @@ static int finish_td(struct xhci_hcd *xhci, struct xhci_virt_ep *ep,
 		if (ep->ep_index != 0)
 			xhci_clear_hub_tt_buffer(xhci, td, ep);
 
-		xhci_handle_halted_endpoint(xhci, ep, td, EP_HARD_RESET);
+		xhci_handle_halted_endpoint(xhci, ep, ep_ring->stream_id, td,
+					    EP_HARD_RESET);
 
 		return 0; /* xhci_handle_halted_endpoint marked td cancelled */
 	default:
@@ -2209,9 +2233,15 @@ static int finish_td(struct xhci_hcd *xhci, struct xhci_virt_ep *ep,
 	}
 
 	/* Update ring dequeue pointer */
+	trbs_freed = xhci_num_trbs_to(ep_ring->deq_seg, ep_ring->dequeue,
+				      td->last_trb_seg, td->last_trb,
+				      ep_ring->num_segs);
+	if (trbs_freed < 0)
+		xhci_dbg(xhci, "Failed to count freed trbs at TD finish\n");
+	else
+		ep_ring->num_trbs_free += trbs_freed;
 	ep_ring->dequeue = td->last_trb;
 	ep_ring->deq_seg = td->last_trb_seg;
-	ep_ring->num_trbs_free += td->num_trbs - 1;
 	inc_deq(xhci, ep_ring);
 
 	return xhci_td_cleanup(xhci, td, ep_ring, td->status);
@@ -2490,7 +2520,8 @@ static int process_bulk_intr_td(struct xhci_hcd *xhci, struct xhci_virt_ep *ep,
 
 		td->status = 0;
 
-		xhci_handle_halted_endpoint(xhci, ep, td, EP_SOFT_RESET);
+		xhci_handle_halted_endpoint(xhci, ep, ep_ring->stream_id, td,
+					    EP_SOFT_RESET);
 		return 0;
 	default:
 		/* do nothing */
@@ -2567,10 +2598,10 @@ static int handle_tx_event(struct xhci_hcd *xhci,
 			xhci_dbg(xhci, "Stream transaction error ep %u no id\n",
 				 ep_index);
 			if (ep->err_count++ > MAX_SOFT_RETRY)
-				xhci_handle_halted_endpoint(xhci, ep, NULL,
+				xhci_handle_halted_endpoint(xhci, ep, 0, NULL,
 							    EP_HARD_RESET);
 			else
-				xhci_handle_halted_endpoint(xhci, ep, NULL,
+				xhci_handle_halted_endpoint(xhci, ep, 0, NULL,
 							    EP_SOFT_RESET);
 			goto cleanup;
 		case COMP_RING_UNDERRUN:
@@ -2754,7 +2785,9 @@ static int handle_tx_event(struct xhci_hcd *xhci,
 			if (trb_comp_code == COMP_STALL_ERROR ||
 			    xhci_requires_manual_halt_cleanup(xhci, ep_ctx,
 							      trb_comp_code)) {
-				xhci_handle_halted_endpoint(xhci, ep, NULL,
+				xhci_handle_halted_endpoint(xhci, ep,
+							    ep_ring->stream_id,
+							    NULL,
 							    EP_HARD_RESET);
 			}
 			goto cleanup;
@@ -2847,8 +2880,9 @@ static int handle_tx_event(struct xhci_hcd *xhci,
 			if (trb_comp_code == COMP_STALL_ERROR ||
 			    xhci_requires_manual_halt_cleanup(xhci, ep_ctx,
 							      trb_comp_code))
-				xhci_handle_halted_endpoint(xhci, ep, td,
-							    EP_HARD_RESET);
+				xhci_handle_halted_endpoint(xhci, ep,
+							    ep_ring->stream_id,
+							    td, EP_HARD_RESET);
 			goto cleanup;
 		}
 
@@ -3032,11 +3066,6 @@ irqreturn_t xhci_irq(struct usb_hcd *hcd)
 
 	if (!(status & STS_EINT))
 		goto out;
-
-	if (status & STS_HCE) {
-		xhci_warn(xhci, "WARNING: Host Controller Error\n");
-		goto out;
-	}
 
 	if (status & STS_FATAL) {
 		xhci_warn(xhci, "WARNING: Host System Error\n");

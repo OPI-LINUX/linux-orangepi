@@ -742,6 +742,7 @@ static struct phylink_pcs *macb_mac_select_pcs(struct phylink_config *config,
 }
 
 static const struct phylink_mac_ops macb_phylink_ops = {
+	.validate = phylink_generic_validate,
 	.mac_select_pcs = macb_mac_select_pcs,
 	.mac_config = macb_mac_config,
 	.mac_link_down = macb_mac_link_down,
@@ -1009,6 +1010,10 @@ static dma_addr_t macb_get_addr(struct macb *bp, struct macb_dma_desc *desc)
 	}
 #endif
 	addr |= MACB_BF(RX_WADDR, MACB_BFEXT(RX_WADDR, desc->addr));
+#ifdef CONFIG_MACB_USE_HWSTAMP
+	if (bp->hw_dma_cap & HW_DMA_CAP_PTP)
+		addr &= ~GEM_BIT(DMA_RXVALID);
+#endif
 	return addr;
 }
 
@@ -2939,18 +2944,6 @@ static int macb_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
-static int macb_set_mac_addr(struct net_device *dev, void *addr)
-{
-	int err;
-
-	err = eth_mac_addr(dev, addr);
-	if (err < 0)
-		return err;
-
-	macb_set_hwaddr(netdev_priv(dev));
-	return 0;
-}
-
 static void gem_update_stats(struct macb *bp)
 {
 	struct macb_queue *queue;
@@ -3790,7 +3783,7 @@ static const struct net_device_ops macb_netdev_ops = {
 	.ndo_eth_ioctl		= macb_ioctl,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_change_mtu		= macb_change_mtu,
-	.ndo_set_mac_address	= macb_set_mac_addr,
+	.ndo_set_mac_address	= eth_mac_addr,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller	= macb_poll_controller,
 #endif
@@ -4052,8 +4045,6 @@ static int macb_init(struct platform_device *pdev)
 		bp->macbgem_ops.mog_rx = macb_rx;
 		dev->ethtool_ops = &macb_ethtool_ops;
 	}
-
-	dev->priv_flags |= IFF_LIVE_ADDR_CHANGE;
 
 	/* Set features */
 	dev->hw_features = NETIF_F_SG;

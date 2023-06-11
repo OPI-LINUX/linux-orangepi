@@ -509,10 +509,10 @@ static void dm_io_acct(struct dm_io *io, bool end)
 		sectors = io->sectors;
 
 	if (!end)
-		bdev_start_io_acct(bio->bi_bdev, bio_op(bio), start_time);
+		bdev_start_io_acct(bio->bi_bdev, sectors, bio_op(bio),
+				   start_time);
 	else
-		bdev_end_io_acct(bio->bi_bdev, bio_op(bio), sectors,
-				 start_time);
+		bdev_end_io_acct(bio->bi_bdev, bio_op(bio), start_time);
 
 	if (static_branch_unlikely(&stats_enabled) &&
 	    unlikely(dm_stats_used(&md->stats))) {
@@ -829,6 +829,19 @@ void dm_put_table_device(struct mapped_device *md, struct dm_dev *d)
 	if (refcount_dec_and_test(&td->count))
 		close_table_device(td, md);
 	mutex_unlock(&md->table_devices_lock);
+}
+
+static void free_table_devices(struct list_head *devices)
+{
+	struct list_head *tmp, *next;
+
+	list_for_each_safe(tmp, next, devices) {
+		struct table_device *td = list_entry(tmp, struct table_device, list);
+
+		DMWARN("dm_destroy: %s still exists with %d references",
+		       td->dm_dev.name, refcount_read(&td->count));
+		kfree(td);
+	}
 }
 
 /*
@@ -2127,7 +2140,7 @@ static void free_dev(struct mapped_device *md)
 
 	cleanup_mapped_device(md);
 
-	WARN_ON_ONCE(!list_empty(&md->table_devices));
+	free_table_devices(&md->table_devices);
 	dm_stats_cleanup(&md->stats);
 	free_minor(minor);
 

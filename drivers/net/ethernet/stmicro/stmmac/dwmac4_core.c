@@ -25,6 +25,7 @@ static void dwmac4_core_init(struct mac_device_info *hw,
 	struct stmmac_priv *priv = netdev_priv(dev);
 	void __iomem *ioaddr = hw->pcsr;
 	u32 value = readl(ioaddr + GMAC_CONFIG);
+	u32 clk_rate;
 
 	value |= GMAC_CORE_INIT;
 
@@ -46,6 +47,10 @@ static void dwmac4_core_init(struct mac_device_info *hw,
 	}
 
 	writel(value, ioaddr + GMAC_CONFIG);
+
+	/* Configure LPI 1us counter to number of CSR clock ticks in 1us - 1 */
+	clk_rate = clk_get_rate(priv->plat->stmmac_clk);
+	writel((clk_rate / 1000000) - 1, ioaddr + GMAC4_MAC_ONEUS_TIC_COUNTER);
 
 	/* Enable GMAC interrupts */
 	value = GMAC_INT_DEFAULT_ENABLE;
@@ -214,17 +219,26 @@ static void dwmac4_map_mtl_dma(struct mac_device_info *hw, u32 queue, u32 chan)
 	void __iomem *ioaddr = hw->pcsr;
 	u32 value;
 
-	if (queue < 4) {
+	if (queue < 4)
 		value = readl(ioaddr + MTL_RXQ_DMA_MAP0);
-		value &= ~MTL_RXQ_DMA_QXMDMACH_MASK(queue);
-		value |= MTL_RXQ_DMA_QXMDMACH(chan, queue);
-		writel(value, ioaddr + MTL_RXQ_DMA_MAP0);
-	} else {
+	else
 		value = readl(ioaddr + MTL_RXQ_DMA_MAP1);
+
+	if (queue == 0 || queue == 4) {
+		value &= ~MTL_RXQ_DMA_Q04MDMACH_MASK;
+		value |= MTL_RXQ_DMA_Q04MDMACH(chan);
+	} else if (queue > 4) {
 		value &= ~MTL_RXQ_DMA_QXMDMACH_MASK(queue - 4);
 		value |= MTL_RXQ_DMA_QXMDMACH(chan, queue - 4);
-		writel(value, ioaddr + MTL_RXQ_DMA_MAP1);
+	} else {
+		value &= ~MTL_RXQ_DMA_QXMDMACH_MASK(queue);
+		value |= MTL_RXQ_DMA_QXMDMACH(chan, queue);
 	}
+
+	if (queue < 4)
+		writel(value, ioaddr + MTL_RXQ_DMA_MAP0);
+	else
+		writel(value, ioaddr + MTL_RXQ_DMA_MAP1);
 }
 
 static void dwmac4_config_cbs(struct mac_device_info *hw,

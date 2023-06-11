@@ -128,8 +128,7 @@
 		status_led: led-0 {
 			gpios = <&gpio0 RK_PB5 GPIO_ACTIVE_HIGH>;
 			label = "status_led";
-			function = LED_FUNCTION_DISK_ACTIVITY;
-			linux,default-trigger = "mmc0";
+			linux,default-trigger = "heartbeat";
 		};
 	};
 

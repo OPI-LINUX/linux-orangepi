@@ -596,7 +596,8 @@ static void stm32_usart_transmit_chars_pio(struct uart_port *port)
 		if (!(readl_relaxed(port->membase + ofs->isr) & USART_SR_TXE))
 			break;
 		writel_relaxed(xmit->buf[xmit->tail], port->membase + ofs->tdr);
-		uart_xmit_advance(port, 1);
+		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
+		port->icount.tx++;
 	}
 
 	/* rely on TXE irq (mask or unmask) for sending remaining data */
@@ -672,8 +673,8 @@ static void stm32_usart_transmit_chars_dma(struct uart_port *port)
 
 	stm32_usart_set_bits(port, ofs->cr3, USART_CR3_DMAT);
 
-	uart_xmit_advance(port, count);
-
+	xmit->tail = (xmit->tail + count) & (UART_XMIT_SIZE - 1);
+	port->icount.tx += count;
 	return;
 
 fallback_err:
@@ -689,8 +690,9 @@ static void stm32_usart_transmit_chars(struct uart_port *port)
 	int ret;
 
 	if (!stm32_port->hw_flow_control &&
-	    port->rs485.flags & SER_RS485_ENABLED) {
-		stm32_port->txdone = false;
+	    port->rs485.flags & SER_RS485_ENABLED &&
+	    (port->x_char ||
+	     !(uart_circ_empty(xmit) || uart_tx_stopped(port)))) {
 		stm32_usart_tc_interrupt_disable(port);
 		stm32_usart_rs485_rts_enable(port);
 	}

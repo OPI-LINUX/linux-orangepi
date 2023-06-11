@@ -152,14 +152,10 @@ static int sunxi_de33_clk_probe(struct platform_device *pdev)
 	writel(0, reg + 0x24);
 	writel(0x0000A980, reg + 0x28);
 
-	ret = devm_sunxi_ccu_probe(&pdev->dev, reg, ccu_desc);
-	if (ret)
-		goto err_assert_reset;
+	of_sunxi_ccu_probe(pdev->dev.of_node, reg, ccu_desc);
 
 	return 0;
 
-err_assert_reset:
-	reset_control_assert(rstc);
 err_disable_mod_clk:
 	clk_disable_unprepare(mod_clk);
 err_disable_bus_clk:

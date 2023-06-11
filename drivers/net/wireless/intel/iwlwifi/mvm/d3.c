@@ -563,6 +563,7 @@ static void iwl_mvm_wowlan_get_tkip_data(struct ieee80211_hw *hw,
 		}
 
 		for (i = 0; i < IWL_NUM_RSC; i++) {
+			ieee80211_get_key_rx_seq(key, i, &seq);
 			/* wrapping isn't allowed, AP must rekey */
 			if (seq.tkip.iv32 > cur_rx_iv32)
 				cur_rx_iv32 = seq.tkip.iv32;
@@ -599,11 +600,6 @@ static void iwl_mvm_wowlan_gtk_type_iter(struct ieee80211_hw *hw,
 	switch (key->cipher) {
 	default:
 		return;
-	case WLAN_CIPHER_SUITE_TKIP:
-		if (!sta)
-			data->kek_kck_cmd->gtk_cipher =
-				cpu_to_le32(STA_KEY_FLG_TKIP);
-		return;
 	case WLAN_CIPHER_SUITE_BIP_GMAC_256:
 	case WLAN_CIPHER_SUITE_BIP_GMAC_128:
 		data->kek_kck_cmd->igtk_cipher = cpu_to_le32(STA_KEY_FLG_GCMP);
@@ -615,13 +611,13 @@ static void iwl_mvm_wowlan_gtk_type_iter(struct ieee80211_hw *hw,
 		if (!sta)
 			data->kek_kck_cmd->gtk_cipher =
 				cpu_to_le32(STA_KEY_FLG_CCM);
-		return;
+		break;
 	case WLAN_CIPHER_SUITE_GCMP:
 	case WLAN_CIPHER_SUITE_GCMP_256:
 		if (!sta)
 			data->kek_kck_cmd->gtk_cipher =
 				cpu_to_le32(STA_KEY_FLG_GCMP);
-		return;
+		break;
 	}
 }
 

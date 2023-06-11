@@ -306,11 +306,11 @@ static void dlm_send_queue_flush(struct midcomms_node *node)
 	pr_debug("flush midcomms send queue of node %d\n", node->nodeid);
 
 	rcu_read_lock();
-	spin_lock_bh(&node->send_queue_lock);
+	spin_lock(&node->send_queue_lock);
 	list_for_each_entry_rcu(mh, &node->send_queue, list) {
 		dlm_mhandle_delete(node, mh);
 	}
-	spin_unlock_bh(&node->send_queue_lock);
+	spin_unlock(&node->send_queue_lock);
 	rcu_read_unlock();
 }
 
@@ -437,7 +437,7 @@ static void dlm_receive_ack(struct midcomms_node *node, uint32_t seq)
 		}
 	}
 
-	spin_lock_bh(&node->send_queue_lock);
+	spin_lock(&node->send_queue_lock);
 	list_for_each_entry_rcu(mh, &node->send_queue, list) {
 		if (before(mh->seq, seq)) {
 			dlm_mhandle_delete(node, mh);
@@ -446,7 +446,7 @@ static void dlm_receive_ack(struct midcomms_node *node, uint32_t seq)
 			break;
 		}
 	}
-	spin_unlock_bh(&node->send_queue_lock);
+	spin_unlock(&node->send_queue_lock);
 	rcu_read_unlock();
 }
 
@@ -479,10 +479,10 @@ static void dlm_receive_buffer_3_2_trace(uint32_t seq, union dlm_packet *p)
 {
 	switch (p->header.h_cmd) {
 	case DLM_MSG:
-		trace_dlm_recv_message(dlm_our_nodeid(), seq, &p->message);
+		trace_dlm_recv_message(seq, &p->message);
 		break;
 	case DLM_RCOM:
-		trace_dlm_recv_rcom(dlm_our_nodeid(), seq, &p->rcom);
+		trace_dlm_recv_rcom(seq, &p->rcom);
 		break;
 	default:
 		break;
@@ -884,7 +884,12 @@ static void dlm_midcomms_receive_buffer_3_1(union dlm_packet *p, int nodeid)
 	dlm_receive_buffer(p, nodeid);
 }
 
-int dlm_validate_incoming_buffer(int nodeid, unsigned char *buf, int len)
+/*
+ * Called from the low-level comms layer to process a buffer of
+ * commands.
+ */
+
+int dlm_process_incoming_buffer(int nodeid, unsigned char *buf, int len)
 {
 	const unsigned char *ptr = buf;
 	const struct dlm_header *hd;
@@ -916,32 +921,6 @@ int dlm_validate_incoming_buffer(int nodeid, unsigned char *buf, int len)
 		/* caller will take care that leftover
 		 * will be parsed next call with more data
 		 */
-		if (msglen > len)
-			break;
-
-		ret += msglen;
-		len -= msglen;
-		ptr += msglen;
-	}
-
-	return ret;
-}
-
-/*
- * Called from the low-level comms layer to process a buffer of
- * commands.
- */
-int dlm_process_incoming_buffer(int nodeid, unsigned char *buf, int len)
-{
-	const unsigned char *ptr = buf;
-	const struct dlm_header *hd;
-	uint16_t msglen;
-	int ret = 0;
-
-	while (len >= sizeof(struct dlm_header)) {
-		hd = (struct dlm_header *)ptr;
-
-		msglen = le16_to_cpu(hd->h_length);
 		if (msglen > len)
 			break;
 
@@ -1061,9 +1040,9 @@ static void midcomms_new_msg_cb(void *data)
 
 	atomic_inc(&mh->node->send_queue_cnt);
 
-	spin_lock_bh(&mh->node->send_queue_lock);
+	spin_lock(&mh->node->send_queue_lock);
 	list_add_tail_rcu(&mh->list, &mh->node->send_queue);
-	spin_unlock_bh(&mh->node->send_queue_lock);
+	spin_unlock(&mh->node->send_queue_lock);
 
 	mh->seq = mh->node->seq_send++;
 }
@@ -1112,7 +1091,7 @@ struct dlm_mhandle *dlm_midcomms_get_mhandle(int nodeid, int len,
 	/* this is a bug, however we going on and hope it will be resolved */
 	WARN_ON_ONCE(test_bit(DLM_NODE_FLAG_STOP_TX, &node->flags));
 
-	mh = dlm_allocate_mhandle(allocation);
+	mh = dlm_allocate_mhandle();
 	if (!mh)
 		goto err;
 
@@ -1166,13 +1145,11 @@ static void dlm_midcomms_commit_msg_3_2_trace(const struct dlm_mhandle *mh,
 {
 	switch (mh->inner_p->header.h_cmd) {
 	case DLM_MSG:
-		trace_dlm_send_message(mh->node->nodeid, mh->seq,
-				       &mh->inner_p->message,
+		trace_dlm_send_message(mh->seq, &mh->inner_p->message,
 				       name, namelen);
 		break;
 	case DLM_RCOM:
-		trace_dlm_send_rcom(mh->node->nodeid, mh->seq,
-				    &mh->inner_p->rcom);
+		trace_dlm_send_rcom(mh->seq, &mh->inner_p->rcom);
 		break;
 	default:
 		/* nothing to trace */
@@ -1440,21 +1417,17 @@ static void midcomms_shutdown(struct midcomms_node *node)
 		pr_debug("active shutdown timed out for node %d with state %s\n",
 			 node->nodeid, dlm_state_str(node->state));
 		midcomms_node_reset(node);
-		dlm_lowcomms_shutdown_node(node->nodeid, true);
 		return;
 	}
 
 	pr_debug("active shutdown done for node %d with state %s\n",
 		 node->nodeid, dlm_state_str(node->state));
-	dlm_lowcomms_shutdown_node(node->nodeid, false);
 }
 
 void dlm_midcomms_shutdown(void)
 {
 	struct midcomms_node *node;
 	int i, idx;
-
-	dlm_lowcomms_shutdown();
 
 	mutex_lock(&close_lock);
 	idx = srcu_read_lock(&nodes_srcu);
@@ -1473,6 +1446,8 @@ void dlm_midcomms_shutdown(void)
 	}
 	srcu_read_unlock(&nodes_srcu, idx);
 	mutex_unlock(&close_lock);
+
+	dlm_lowcomms_shutdown();
 }
 
 int dlm_midcomms_close(int nodeid)

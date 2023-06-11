@@ -544,7 +544,6 @@ static int __vb2_queue_free(struct vb2_queue *q, unsigned int buffers)
 	 */
 	if (q->num_buffers) {
 		bool unbalanced = q->cnt_start_streaming != q->cnt_stop_streaming ||
-				  q->cnt_prepare_streaming != q->cnt_unprepare_streaming ||
 				  q->cnt_wait_prepare != q->cnt_wait_finish;
 
 		if (unbalanced || debug) {
@@ -553,18 +552,14 @@ static int __vb2_queue_free(struct vb2_queue *q, unsigned int buffers)
 			pr_info("     setup: %u start_streaming: %u stop_streaming: %u\n",
 				q->cnt_queue_setup, q->cnt_start_streaming,
 				q->cnt_stop_streaming);
-			pr_info("     prepare_streaming: %u unprepare_streaming: %u\n",
-				q->cnt_prepare_streaming, q->cnt_unprepare_streaming);
 			pr_info("     wait_prepare: %u wait_finish: %u\n",
 				q->cnt_wait_prepare, q->cnt_wait_finish);
 		}
 		q->cnt_queue_setup = 0;
 		q->cnt_wait_prepare = 0;
 		q->cnt_wait_finish = 0;
-		q->cnt_prepare_streaming = 0;
 		q->cnt_start_streaming = 0;
 		q->cnt_stop_streaming = 0;
-		q->cnt_unprepare_streaming = 0;
 	}
 	for (buffer = 0; buffer < q->num_buffers; ++buffer) {
 		struct vb2_buffer *vb = q->bufs[buffer];
@@ -2031,9 +2026,6 @@ static void __vb2_queue_cancel(struct vb2_queue *q)
 	if (q->start_streaming_called)
 		call_void_qop(q, stop_streaming, q);
 
-	if (q->streaming)
-		call_void_qop(q, unprepare_streaming, q);
-
 	/*
 	 * If you see this warning, then the driver isn't cleaning up properly
 	 * in stop_streaming(). See the stop_streaming() documentation in
@@ -2145,28 +2137,23 @@ int vb2_core_streamon(struct vb2_queue *q, unsigned int type)
 		return -EINVAL;
 	}
 
-	ret = call_qop(q, prepare_streaming, q);
-	if (ret)
-		return ret;
-
 	/*
 	 * Tell driver to start streaming provided sufficient buffers
 	 * are available.
 	 */
 	if (q->queued_count >= q->min_buffers_needed) {
+		ret = v4l_vb2q_enable_media_source(q);
+		if (ret)
+			return ret;
 		ret = vb2_start_streaming(q);
 		if (ret)
-			goto unprepare;
+			return ret;
 	}
 
 	q->streaming = 1;
 
 	dprintk(q, 3, "successful\n");
 	return 0;
-
-unprepare:
-	call_void_qop(q, unprepare_streaming, q);
-	return ret;
 }
 EXPORT_SYMBOL_GPL(vb2_core_streamon);
 
@@ -2248,12 +2235,12 @@ static int __find_plane_by_offset(struct vb2_queue *q, unsigned long off,
 	return -EINVAL;
 }
 
-int vb2_core_expbuf_dmabuf(struct vb2_queue *q, unsigned int type,
-			   unsigned int index, unsigned int plane,
-			   unsigned int flags, struct dma_buf **dmabuf)
+int vb2_core_expbuf(struct vb2_queue *q, int *fd, unsigned int type,
+		unsigned int index, unsigned int plane, unsigned int flags)
 {
 	struct vb2_buffer *vb = NULL;
 	struct vb2_plane *vb_plane;
+	int ret;
 	struct dma_buf *dbuf;
 
 	if (q->memory != VB2_MEMORY_MMAP) {
@@ -2304,21 +2291,6 @@ int vb2_core_expbuf_dmabuf(struct vb2_queue *q, unsigned int type,
 			index, plane);
 		return -EINVAL;
 	}
-
-	*dmabuf = dbuf;
-	return 0;
-}
-EXPORT_SYMBOL_GPL(vb2_core_expbuf_dmabuf);
-
-int vb2_core_expbuf(struct vb2_queue *q, int *fd, unsigned int type,
-		    unsigned int index, unsigned int plane, unsigned int flags)
-{
-	struct dma_buf *dbuf;
-	int ret;
-
-	ret = vb2_core_expbuf_dmabuf(q, type, index, plane, flags, &dbuf);
-	if (ret)
-		return ret;
 
 	ret = dma_buf_fd(dbuf, flags & ~O_ACCMODE);
 	if (ret < 0) {
@@ -2458,6 +2430,17 @@ int vb2_core_queue_init(struct vb2_queue *q)
 		return -EINVAL;
 
 	if (WARN_ON(q->requires_requests && !q->supports_requests))
+		return -EINVAL;
+
+	/*
+	 * This combination is not allowed since a non-zero value of
+	 * q->min_buffers_needed can cause vb2_core_qbuf() to fail if
+	 * it has to call start_streaming(), and the Request API expects
+	 * that queueing a request (and thus queueing a buffer contained
+	 * in that request) will always succeed. There is no method of
+	 * propagating an error back to userspace.
+	 */
+	if (WARN_ON(q->supports_requests && q->min_buffers_needed))
 		return -EINVAL;
 
 	INIT_LIST_HEAD(&q->queued_list);

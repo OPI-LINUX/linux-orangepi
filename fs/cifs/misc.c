@@ -22,7 +22,6 @@
 #ifdef CONFIG_CIFS_DFS_UPCALL
 #include "dns_resolve.h"
 #include "dfs_cache.h"
-#include "dfs.h"
 #endif
 #include "fs_context.h"
 #include "cached_dir.h"
@@ -135,9 +134,6 @@ tconInfoAlloc(void)
 	spin_lock_init(&ret_buf->stat_lock);
 	atomic_set(&ret_buf->num_local_opens, 0);
 	atomic_set(&ret_buf->num_remote_opens, 0);
-#ifdef CONFIG_CIFS_DFS_UPCALL
-	INIT_LIST_HEAD(&ret_buf->dfs_ses_list);
-#endif
 
 	return ret_buf;
 }
@@ -153,9 +149,6 @@ tconInfoFree(struct cifs_tcon *tcon)
 	atomic_dec(&tconInfoAllocCount);
 	kfree(tcon->nativeFileSystem);
 	kfree_sensitive(tcon->password);
-#ifdef CONFIG_CIFS_DFS_UPCALL
-	dfs_put_root_smb_sessions(&tcon->dfs_ses_list);
-#endif
 	kfree(tcon);
 }
 
@@ -749,7 +742,9 @@ cifs_close_deferred_file(struct cifsInodeInfo *cifs_inode)
 	list_for_each_entry(cfile, &cifs_inode->openFileList, flist) {
 		if (delayed_work_pending(&cfile->deferred)) {
 			if (cancel_delayed_work(&cfile->deferred)) {
+				spin_lock(&cifs_inode->deferred_lock);
 				cifs_del_deferred_close(cfile);
+				spin_unlock(&cifs_inode->deferred_lock);
 
 				tmp_list = kmalloc(sizeof(struct file_list), GFP_ATOMIC);
 				if (tmp_list == NULL)
@@ -762,7 +757,7 @@ cifs_close_deferred_file(struct cifsInodeInfo *cifs_inode)
 	spin_unlock(&cifs_inode->open_file_lock);
 
 	list_for_each_entry_safe(tmp_list, tmp_next_list, &file_head, list) {
-		_cifsFileInfo_put(tmp_list->cfile, true, false);
+		_cifsFileInfo_put(tmp_list->cfile, false, false);
 		list_del(&tmp_list->list);
 		kfree(tmp_list);
 	}
@@ -780,7 +775,9 @@ cifs_close_all_deferred_files(struct cifs_tcon *tcon)
 	list_for_each_entry(cfile, &tcon->openFileList, tlist) {
 		if (delayed_work_pending(&cfile->deferred)) {
 			if (cancel_delayed_work(&cfile->deferred)) {
+				spin_lock(&CIFS_I(d_inode(cfile->dentry))->deferred_lock);
 				cifs_del_deferred_close(cfile);
+				spin_unlock(&CIFS_I(d_inode(cfile->dentry))->deferred_lock);
 
 				tmp_list = kmalloc(sizeof(struct file_list), GFP_ATOMIC);
 				if (tmp_list == NULL)
@@ -815,7 +812,9 @@ cifs_close_deferred_file_under_dentry(struct cifs_tcon *tcon, const char *path)
 		if (strstr(full_path, path)) {
 			if (delayed_work_pending(&cfile->deferred)) {
 				if (cancel_delayed_work(&cfile->deferred)) {
+					spin_lock(&CIFS_I(d_inode(cfile->dentry))->deferred_lock);
 					cifs_del_deferred_close(cfile);
+					spin_unlock(&CIFS_I(d_inode(cfile->dentry))->deferred_lock);
 
 					tmp_list = kmalloc(sizeof(struct file_list), GFP_ATOMIC);
 					if (tmp_list == NULL)
@@ -1266,30 +1265,44 @@ int match_target_ip(struct TCP_Server_Info *server,
 		    bool *result)
 {
 	int rc;
-	char *target;
-	struct sockaddr_storage ss;
+	char *target, *tip = NULL;
+	struct sockaddr tipaddr;
 
 	*result = false;
 
 	target = kzalloc(share_len + 3, GFP_KERNEL);
-	if (!target)
-		return -ENOMEM;
+	if (!target) {
+		rc = -ENOMEM;
+		goto out;
+	}
 
 	scnprintf(target, share_len + 3, "\\\\%.*s", (int)share_len, share);
 
 	cifs_dbg(FYI, "%s: target name: %s\n", __func__, target + 2);
 
-	rc = dns_resolve_server_name_to_ip(target, (struct sockaddr *)&ss, NULL);
-	kfree(target);
-
+	rc = dns_resolve_server_name_to_ip(target, &tip, NULL);
 	if (rc < 0)
-		return rc;
+		goto out;
 
-	spin_lock(&server->srv_lock);
-	*result = cifs_match_ipaddr((struct sockaddr *)&server->dstaddr, (struct sockaddr *)&ss);
-	spin_unlock(&server->srv_lock);
+	cifs_dbg(FYI, "%s: target ip: %s\n", __func__, tip);
+
+	if (!cifs_convert_address(&tipaddr, tip, strlen(tip))) {
+		cifs_dbg(VFS, "%s: failed to convert target ip address\n",
+			 __func__);
+		rc = -EINVAL;
+		goto out;
+	}
+
+	*result = cifs_match_ipaddr((struct sockaddr *)&server->dstaddr,
+				    &tipaddr);
 	cifs_dbg(FYI, "%s: ip addresses match: %u\n", __func__, *result);
-	return 0;
+	rc = 0;
+
+out:
+	kfree(target);
+	kfree(tip);
+
+	return rc;
 }
 
 int cifs_update_super_prepath(struct cifs_sb_info *cifs_sb, char *prefix)
@@ -1364,7 +1377,6 @@ int cifs_inval_name_dfs_link_error(const unsigned int xid,
 		 * removing cached DFS targets that the client would eventually
 		 * need during failover.
 		 */
-		ses = CIFS_DFS_ROOT_SES(ses);
 		if (ses->server->ops->get_dfs_refer &&
 		    !ses->server->ops->get_dfs_refer(xid, ses, ref_path, &refs,
 						     &num_refs, cifs_sb->local_nls,

@@ -15,7 +15,7 @@
 
 static struct kvm_x86_ops svm_x86_ops;
 
-int svm_hv_enable_l2_tlb_flush(struct kvm_vcpu *vcpu);
+int svm_hv_enable_direct_tlbflush(struct kvm_vcpu *vcpu);
 
 static inline bool svm_hv_is_enlightened_tlb_enabled(struct kvm_vcpu *vcpu)
 {
@@ -63,8 +63,8 @@ static inline __init void svm_hv_hardware_setup(void)
 
 			vp_ap->nested_control.features.directhypercall = 1;
 		}
-		svm_x86_ops.enable_l2_tlb_flush =
-				svm_hv_enable_l2_tlb_flush;
+		svm_x86_ops.enable_direct_tlbflush =
+				svm_hv_enable_direct_tlbflush;
 	}
 }
 

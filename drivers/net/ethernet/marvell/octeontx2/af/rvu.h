@@ -410,15 +410,9 @@ struct rvu_fwdata {
 	u32 ptp_ext_tstamp;
 #define FWDATA_RESERVED_MEM 1022
 	u64 reserved[FWDATA_RESERVED_MEM];
-#define CGX_MAX         9
+#define CGX_MAX         5
 #define CGX_LMACS_MAX   4
-#define CGX_LMACS_USX   8
-	union {
-		struct cgx_lmac_fwdata_s
-			cgx_fw_data[CGX_MAX][CGX_LMACS_MAX];
-		struct cgx_lmac_fwdata_s
-			cgx_fw_data_usx[CGX_MAX][CGX_LMACS_USX];
-	};
+	struct cgx_lmac_fwdata_s cgx_fw_data[CGX_MAX][CGX_LMACS_MAX];
 	/* Do not add new fields below this line */
 };
 
@@ -484,7 +478,7 @@ struct rvu {
 	u8			cgx_mapped_pfs;
 	u8			cgx_cnt_max;	 /* CGX port count max */
 	u8			*pf2cgxlmac_map; /* pf to cgx_lmac map */
-	u64			*cgxlmac2pf_map; /* bitmap of mapped pfs for
+	u16			*cgxlmac2pf_map; /* bitmap of mapped pfs for
 						  * every cgx lmac port
 						  */
 	unsigned long		pf_notify_bmap; /* Flags for PF notification */
@@ -899,6 +893,7 @@ int rvu_get_hwvf(struct rvu *rvu, int pcifunc);
 /* CN10K MCS */
 int rvu_mcs_init(struct rvu *rvu);
 int rvu_mcs_flr_handler(struct rvu *rvu, u16 pcifunc);
+void rvu_mcs_ptp_cfg(struct rvu *rvu, u8 rpm_id, u8 lmac_id, bool ena);
 void rvu_mcs_exit(struct rvu *rvu);
 
 #endif /* RVU_H */

@@ -18,7 +18,6 @@
 #include "debug.h"
 #include "bf.h"
 #include "sar.h"
-#include "sdio.h"
 
 bool rtw_disable_lps_deep_mode;
 EXPORT_SYMBOL(rtw_disable_lps_deep_mode);
@@ -242,10 +241,8 @@ static void rtw_watch_dog_work(struct work_struct *work)
 	rtw_phy_dynamic_mechanism(rtwdev);
 
 	data.rtwdev = rtwdev;
-	/* rtw_iterate_vifs internally uses an atomic iterator which is needed
-	 * to avoid taking local->iflist_mtx mutex
-	 */
-	rtw_iterate_vifs(rtwdev, rtw_vif_watch_dog_iter, &data);
+	/* use atomic version to avoid taking local->iflist_mtx mutex */
+	rtw_iterate_vifs_atomic(rtwdev, rtw_vif_watch_dog_iter, &data);
 
 	/* fw supports only one station associated to enter lps, if there are
 	 * more than two stations associated to the AP, then we can not enter
@@ -299,6 +296,17 @@ static u8 rtw_acquire_macid(struct rtw_dev *rtwdev)
 	return mac_id;
 }
 
+static void rtw_sta_rc_work(struct work_struct *work)
+{
+	struct rtw_sta_info *si = container_of(work, struct rtw_sta_info,
+					       rc_work);
+	struct rtw_dev *rtwdev = si->rtwdev;
+
+	mutex_lock(&rtwdev->mutex);
+	rtw_update_sta_info(rtwdev, si, true);
+	mutex_unlock(&rtwdev->mutex);
+}
+
 int rtw_sta_add(struct rtw_dev *rtwdev, struct ieee80211_sta *sta,
 		struct ieee80211_vif *vif)
 {
@@ -309,12 +317,14 @@ int rtw_sta_add(struct rtw_dev *rtwdev, struct ieee80211_sta *sta,
 	if (si->mac_id >= RTW_MAX_MAC_ID_NUM)
 		return -ENOSPC;
 
+	si->rtwdev = rtwdev;
 	si->sta = sta;
 	si->vif = vif;
 	si->init_ra_lv = 1;
 	ewma_rssi_init(&si->avg_rssi);
 	for (i = 0; i < ARRAY_SIZE(sta->txq); i++)
 		rtw_txq_init(rtwdev, sta->txq[i]);
+	INIT_WORK(&si->rc_work, rtw_sta_rc_work);
 
 	rtw_update_sta_info(rtwdev, si, true);
 	rtw_fw_media_status_report(rtwdev, si->mac_id, true);
@@ -332,6 +342,8 @@ void rtw_sta_remove(struct rtw_dev *rtwdev, struct ieee80211_sta *sta,
 {
 	struct rtw_sta_info *si = (struct rtw_sta_info *)sta->drv_priv;
 	int i;
+
+	cancel_work_sync(&si->rc_work);
 
 	rtw_release_macid(rtwdev, si->mac_id);
 	if (fw_exist)
@@ -1734,8 +1746,7 @@ static void rtw_load_firmware_cb(const struct firmware *firmware, void *context)
 	update_firmware_info(rtwdev, fw);
 	complete_all(&fw->completion);
 
-	rtw_info(rtwdev, "%sFirmware version %u.%u.%u, H2C version %u\n",
-		 fw->type == RTW_WOWLAN_FW ? "WOW " : "",
+	rtw_info(rtwdev, "Firmware version %u.%u.%u, H2C version %u\n",
 		 fw->version, fw->sub_version, fw->sub_index, fw->h2c_version);
 }
 
@@ -1761,7 +1772,6 @@ static int rtw_load_firmware(struct rtw_dev *rtwdev, enum rtw_fw_type type)
 		return -ENOENT;
 	}
 
-	fw->type = type;
 	fw->rtwdev = rtwdev;
 	init_completion(&fw->completion);
 
@@ -1785,14 +1795,6 @@ static int rtw_chip_parameter_setup(struct rtw_dev *rtwdev)
 	case RTW_HCI_TYPE_PCIE:
 		rtwdev->hci.rpwm_addr = 0x03d9;
 		rtwdev->hci.cpwm_addr = 0x03da;
-		break;
-	case RTW_HCI_TYPE_SDIO:
-		rtwdev->hci.rpwm_addr = REG_SDIO_HRPWM1;
-		rtwdev->hci.cpwm_addr = REG_SDIO_HCPWM1_V2;
-		break;
-	case RTW_HCI_TYPE_USB:
-		rtwdev->hci.rpwm_addr = 0xfe58;
-		rtwdev->hci.cpwm_addr = 0xfe57;
 		break;
 	default:
 		rtw_err(rtwdev, "unsupported hci type\n");
@@ -2078,10 +2080,13 @@ int rtw_core_init(struct rtw_dev *rtwdev)
 	skb_queue_head_init(&rtwdev->coex.queue);
 	skb_queue_head_init(&rtwdev->tx_report.queue);
 
+	spin_lock_init(&rtwdev->rf_lock);
+	spin_lock_init(&rtwdev->h2c.lock);
 	spin_lock_init(&rtwdev->txq_lock);
 	spin_lock_init(&rtwdev->tx_report.q_lock);
 
 	mutex_init(&rtwdev->mutex);
+	mutex_init(&rtwdev->coex.mutex);
 	mutex_init(&rtwdev->hal.tx_power_mutex);
 
 	init_waitqueue_head(&rtwdev->coex.wait);
@@ -2153,6 +2158,7 @@ void rtw_core_deinit(struct rtw_dev *rtwdev)
 	}
 
 	mutex_destroy(&rtwdev->mutex);
+	mutex_destroy(&rtwdev->coex.mutex);
 	mutex_destroy(&rtwdev->hal.tx_power_mutex);
 }
 EXPORT_SYMBOL(rtw_core_deinit);
@@ -2163,10 +2169,8 @@ int rtw_register_hw(struct rtw_dev *rtwdev, struct ieee80211_hw *hw)
 	int max_tx_headroom = 0;
 	int ret;
 
+	/* TODO: USB & SDIO may need extra room? */
 	max_tx_headroom = rtwdev->chip->tx_pkt_desc_sz;
-
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
-		max_tx_headroom += RTW_SDIO_DATA_PTR_ALIGN;
 
 	hw->extra_tx_headroom = max_tx_headroom;
 	hw->queues = IEEE80211_NUM_ACS;

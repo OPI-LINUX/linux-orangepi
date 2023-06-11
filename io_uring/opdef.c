@@ -313,7 +313,6 @@ const struct io_op_def io_op_defs[] = {
 	},
 	[IORING_OP_MADVISE] = {
 		.name			= "MADVISE",
-		.audit_skip		= 1,
 		.prep			= io_madvise_prep,
 		.issue			= io_madvise,
 	},
@@ -446,7 +445,6 @@ const struct io_op_def io_op_defs[] = {
 		.name			= "MSG_RING",
 		.prep			= io_msg_ring_prep,
 		.issue			= io_msg_ring,
-		.cleanup		= io_msg_ring_cleanup,
 	},
 	[IORING_OP_FSETXATTR] = {
 		.needs_file = 1,

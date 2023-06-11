@@ -565,7 +565,7 @@ struct _vcs_dpi_soc_bounding_box_st dcn2_1_soc = {
 				.dppclk_mhz = 847.06,
 				.phyclk_mhz = 810.0,
 				.socclk_mhz = 953.0,
-				.dscclk_mhz = 300.0,
+				.dscclk_mhz = 489.0,
 				.dram_speed_mts = 2400.0,
 			},
 			{
@@ -576,7 +576,7 @@ struct _vcs_dpi_soc_bounding_box_st dcn2_1_soc = {
 				.dppclk_mhz = 960.00,
 				.phyclk_mhz = 810.0,
 				.socclk_mhz = 278.0,
-				.dscclk_mhz = 342.86,
+				.dscclk_mhz = 287.67,
 				.dram_speed_mts = 2666.0,
 			},
 			{
@@ -587,7 +587,7 @@ struct _vcs_dpi_soc_bounding_box_st dcn2_1_soc = {
 				.dppclk_mhz = 1028.57,
 				.phyclk_mhz = 810.0,
 				.socclk_mhz = 715.0,
-				.dscclk_mhz = 369.23,
+				.dscclk_mhz = 318.334,
 				.dram_speed_mts = 3200.0,
 			},
 			{
@@ -949,7 +949,6 @@ static enum dcn_zstate_support_state  decide_zstate_support(struct dc *dc, struc
 	int plane_count;
 	int i;
 	unsigned int optimized_min_dst_y_next_start_us;
-	bool allow_z8 = context->bw_ctx.dml.vba.StutterPeriod > 1000.0;
 
 	plane_count = 0;
 	optimized_min_dst_y_next_start_us = 0;
@@ -974,6 +973,9 @@ static enum dcn_zstate_support_state  decide_zstate_support(struct dc *dc, struc
 	else if (context->stream_count == 1 &&  context->streams[0]->signal == SIGNAL_TYPE_EDP) {
 		struct dc_link *link = context->streams[0]->sink->link;
 		struct dc_stream_status *stream_status = &context->stream_status[0];
+		int minmum_z8_residency = dc->debug.minimum_z8_residency_time > 0 ? dc->debug.minimum_z8_residency_time : 1000;
+		bool allow_z8 = context->bw_ctx.dml.vba.StutterPeriod > (double)minmum_z8_residency;
+		bool is_pwrseq0 = link->link_index == 0;
 
 		if (dc_extended_blank_supported(dc)) {
 			for (i = 0; i < dc->res_pool->pipe_count; i++) {
@@ -986,18 +988,17 @@ static enum dcn_zstate_support_state  decide_zstate_support(struct dc *dc, struc
 				}
 			}
 		}
-		/* zstate only supported on PWRSEQ0  and when there's <2 planes*/
-		if (link->link_index != 0 || stream_status->plane_count > 1)
+
+		/* Don't support multi-plane configurations */
+		if (stream_status->plane_count > 1)
 			return DCN_ZSTATE_SUPPORT_DISALLOW;
 
-		if (context->bw_ctx.dml.vba.StutterPeriod > 5000.0 || optimized_min_dst_y_next_start_us > 5000)
+		if (is_pwrseq0 && (context->bw_ctx.dml.vba.StutterPeriod > 5000.0 || optimized_min_dst_y_next_start_us > 5000))
 			return DCN_ZSTATE_SUPPORT_ALLOW;
-		else if (link->psr_settings.psr_version == DC_PSR_VERSION_1 && !link->panel_config.psr.disable_psr)
+		else if (is_pwrseq0 && link->psr_settings.psr_version == DC_PSR_VERSION_1 && !link->panel_config.psr.disable_psr)
 			return allow_z8 ? DCN_ZSTATE_SUPPORT_ALLOW_Z8_Z10_ONLY : DCN_ZSTATE_SUPPORT_ALLOW_Z10_ONLY;
 		else
 			return allow_z8 ? DCN_ZSTATE_SUPPORT_ALLOW_Z8_ONLY : DCN_ZSTATE_SUPPORT_DISALLOW;
-	} else if (allow_z8) {
-		return DCN_ZSTATE_SUPPORT_ALLOW_Z8_ONLY;
 	} else {
 		return DCN_ZSTATE_SUPPORT_DISALLOW;
 	}
@@ -1302,8 +1303,6 @@ int dcn20_populate_dml_pipes_from_context(
 		case SIGNAL_TYPE_DISPLAY_PORT_MST:
 		case SIGNAL_TYPE_DISPLAY_PORT:
 			pipes[pipe_cnt].dout.output_type = dm_dp;
-			if (is_dp_128b_132b_signal(&res_ctx->pipe_ctx[i]))
-				pipes[pipe_cnt].dout.output_type = dm_dp2p0;
 			break;
 		case SIGNAL_TYPE_EDP:
 			pipes[pipe_cnt].dout.output_type = dm_edp;
