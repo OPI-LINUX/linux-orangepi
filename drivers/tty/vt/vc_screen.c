@@ -403,11 +403,10 @@ vcs_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 		unsigned int this_round, skip = 0;
 		int size;
 
+		ret = -ENXIO;
 		vc = vcs_vc(inode, &viewed);
-		if (!vc) {
-			ret = -ENXIO;
-			break;
-		}
+		if (!vc)
+			goto unlock_out;
 
 		/* Check whether we are above size each round,
 		 * as copy_to_user at the end of this loop
@@ -415,8 +414,10 @@ vcs_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 		 */
 		size = vcs_size(vc, attr, uni_mode);
 		if (size < 0) {
+			if (read)
+				break;
 			ret = size;
-			break;
+			goto unlock_out;
 		}
 		if (pos >= size)
 			break;

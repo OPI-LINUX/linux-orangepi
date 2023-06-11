@@ -147,6 +147,12 @@
 #define SUN50I_MIXER_CDC0_EN			0xd0000
 #define SUN50I_MIXER_CDC1_EN			0xd8000
 
+enum sun8i_mixer_type {
+	sun8i_mixer_de2,
+	sun8i_mixer_de3,
+	sun8i_mixer_de33,
+};
+
 enum {
 	/* First mixer or second mixer with VEP support. */
 	CCSC_MIXER0_LAYOUT,
@@ -154,12 +160,6 @@ enum {
 	CCSC_MIXER1_LAYOUT,
 	/* First mixer with the MMIO layout found in the D1 SoC. */
 	CCSC_D1_MIXER0_LAYOUT,
-};
-
-enum sun8i_mixer_type {
-	sun8i_mixer_de2,
-	sun8i_mixer_de3,
-	sun8i_mixer_de33,
 };
 
 /**

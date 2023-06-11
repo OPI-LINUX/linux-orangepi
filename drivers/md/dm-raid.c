@@ -3712,7 +3712,7 @@ static void raid_status(struct dm_target *ti, status_type_t type,
 }
 
 static int raid_message(struct dm_target *ti, unsigned int argc, char **argv,
-			char *result, unsigned int maxlen)
+			char *result, unsigned maxlen)
 {
 	struct raid_set *rs = ti->private;
 	struct mddev *mddev = &rs->md;

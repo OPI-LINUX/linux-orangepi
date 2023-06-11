@@ -36,6 +36,7 @@
 #include <linux/firmware.h>
 #include <linux/miscdevice.h>
 #include <linux/percpu.h>
+#include <linux/msi.h>
 #include <linux/irq.h>
 #include <linux/bitops.h>
 #include <linux/crash_dump.h>
@@ -698,8 +699,6 @@ lpfc_sli4_refresh_params(struct lpfc_hba *phba)
 		return rc;
 	}
 	mbx_sli4_parameters = &mqe->un.get_sli4_parameters.sli4_parameters;
-	phba->sli4_hba.pc_sli4_params.mi_cap =
-		bf_get(cfg_mi_ver, mbx_sli4_parameters);
 
 	/* Are we forcing MI off via module parameter? */
 	if (phba->cfg_enable_mi)
@@ -7235,8 +7234,6 @@ lpfc_sli4_cgn_params_read(struct lpfc_hba *phba)
 	/* Find out if the FW has a new set of congestion parameters. */
 	len = sizeof(struct lpfc_cgn_param);
 	pdata = kzalloc(len, GFP_KERNEL);
-	if (!pdata)
-		return -ENOMEM;
 	ret = lpfc_read_object(phba, (char *)LPFC_PORT_CFG_NAME,
 			       pdata, len);
 
@@ -10096,15 +10093,17 @@ lpfc_sli4_read_config(struct lpfc_hba *phba)
 		qmin = phba->sli4_hba.max_cfg_param.max_wq;
 		if (phba->sli4_hba.max_cfg_param.max_cq < qmin)
 			qmin = phba->sli4_hba.max_cfg_param.max_cq;
-		/*
-		 * Reserve 4 (ELS, NVME LS, MBOX, plus one extra) and
-		 * the remainder can be used for NVME / FCP.
-		 */
-		qmin -= 4;
 		if (phba->sli4_hba.max_cfg_param.max_eq < qmin)
 			qmin = phba->sli4_hba.max_cfg_param.max_eq;
+		/*
+		 * Whats left after this can go toward NVME / FCP.
+		 * The minus 4 accounts for ELS, NVME LS, MBOX
+		 * plus one extra. When configured for
+		 * NVMET, FCP io channel WQs are not created.
+		 */
+		qmin -= 4;
 
-		/* Check to see if there is enough for default cfg */
+		/* Check to see if there is enough for NVME */
 		if ((phba->cfg_irq_chann > qmin) ||
 		    (phba->cfg_hdw_queue > qmin)) {
 			lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
@@ -12509,7 +12508,7 @@ lpfc_cpu_affinity_check(struct lpfc_hba *phba, int vectors)
 					goto found_same;
 				new_cpu = cpumask_next(
 					new_cpu, cpu_present_mask);
-				if (new_cpu >= nr_cpu_ids)
+				if (new_cpu == nr_cpumask_bits)
 					new_cpu = first_cpu;
 			}
 			/* At this point, we leave the CPU as unassigned */
@@ -12523,7 +12522,7 @@ found_same:
 			 * selecting the same IRQ.
 			 */
 			start_cpu = cpumask_next(new_cpu, cpu_present_mask);
-			if (start_cpu >= nr_cpu_ids)
+			if (start_cpu == nr_cpumask_bits)
 				start_cpu = first_cpu;
 
 			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
@@ -12559,7 +12558,7 @@ found_same:
 					goto found_any;
 				new_cpu = cpumask_next(
 					new_cpu, cpu_present_mask);
-				if (new_cpu >= nr_cpu_ids)
+				if (new_cpu == nr_cpumask_bits)
 					new_cpu = first_cpu;
 			}
 			/* We should never leave an entry unassigned */
@@ -12577,7 +12576,7 @@ found_any:
 			 * selecting the same IRQ.
 			 */
 			start_cpu = cpumask_next(new_cpu, cpu_present_mask);
-			if (start_cpu >= nr_cpu_ids)
+			if (start_cpu == nr_cpumask_bits)
 				start_cpu = first_cpu;
 
 			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
@@ -12650,7 +12649,7 @@ found_any:
 				goto found_hdwq;
 			}
 			new_cpu = cpumask_next(new_cpu, cpu_present_mask);
-			if (new_cpu >= nr_cpu_ids)
+			if (new_cpu == nr_cpumask_bits)
 				new_cpu = first_cpu;
 		}
 
@@ -12665,7 +12664,7 @@ found_any:
 				goto found_hdwq;
 
 			new_cpu = cpumask_next(new_cpu, cpu_present_mask);
-			if (new_cpu >= nr_cpu_ids)
+			if (new_cpu == nr_cpumask_bits)
 				new_cpu = first_cpu;
 		}
 
@@ -12676,7 +12675,7 @@ found_any:
  found_hdwq:
 		/* We found an available entry, copy the IRQ info */
 		start_cpu = cpumask_next(new_cpu, cpu_present_mask);
-		if (start_cpu >= nr_cpu_ids)
+		if (start_cpu == nr_cpumask_bits)
 			start_cpu = first_cpu;
 		cpup->hdwq = new_cpup->hdwq;
  logit:
@@ -13843,7 +13842,6 @@ lpfc_get_sli4_parameters(struct lpfc_hba *phba, LPFC_MBOXQ_t *mboxq)
 					   mbx_sli4_parameters);
 	phba->sli4_hba.extents_in_use = bf_get(cfg_ext, mbx_sli4_parameters);
 	phba->sli4_hba.rpi_hdrs_in_use = bf_get(cfg_hdrr, mbx_sli4_parameters);
-	sli4_params->mi_cap = bf_get(cfg_mi_ver, mbx_sli4_parameters);
 
 	/* Check for Extended Pre-Registered SGL support */
 	phba->cfg_xpsgl = bf_get(cfg_xpsgl, mbx_sli4_parameters);

@@ -82,7 +82,7 @@ static DEFINE_MUTEX(register_count_mutex);
 static DEFINE_MUTEX(video_list_lock);
 static LIST_HEAD(video_bus_head);
 static int acpi_video_bus_add(struct acpi_device *device);
-static void acpi_video_bus_remove(struct acpi_device *device);
+static int acpi_video_bus_remove(struct acpi_device *device);
 static void acpi_video_bus_notify(struct acpi_device *device, u32 event);
 static void acpi_video_bus_register_backlight_work(struct work_struct *ignored);
 static DECLARE_DELAYED_WORK(video_bus_register_backlight_work,
@@ -1984,7 +1984,6 @@ static int instance;
 static int acpi_video_bus_add(struct acpi_device *device)
 {
 	struct acpi_video_bus *video;
-	bool auto_detect;
 	int error;
 	acpi_status status;
 
@@ -2046,20 +2045,10 @@ static int acpi_video_bus_add(struct acpi_device *device)
 	mutex_unlock(&video_list_lock);
 
 	/*
-	 * If backlight-type auto-detection is used then a native backlight may
-	 * show up later and this may change the result from video to native.
-	 * Therefor normally the userspace visible /sys/class/backlight device
-	 * gets registered separately by the GPU driver calling
-	 * acpi_video_register_backlight() when an internal panel is detected.
-	 * Register the backlight now when not using auto-detection, so that
-	 * when the kernel cmdline or DMI-quirks are used the backlight will
-	 * get registered even if acpi_video_register_backlight() is not called.
+	 * The userspace visible backlight_device gets registered separately
+	 * from acpi_video_register_backlight().
 	 */
 	acpi_video_run_bcl_for_osi(video);
-	if (__acpi_video_get_backlight_type(false, &auto_detect) == acpi_backlight_video &&
-	    !auto_detect)
-		acpi_video_bus_register_backlight(video);
-
 	acpi_video_bus_add_notify_handler(video);
 
 	return 0;
@@ -2074,13 +2063,13 @@ err_free_video:
 	return error;
 }
 
-static void acpi_video_bus_remove(struct acpi_device *device)
+static int acpi_video_bus_remove(struct acpi_device *device)
 {
 	struct acpi_video_bus *video = NULL;
 
 
 	if (!device || !acpi_driver_data(device))
-		return;
+		return -EINVAL;
 
 	video = acpi_driver_data(device);
 
@@ -2094,6 +2083,8 @@ static void acpi_video_bus_remove(struct acpi_device *device)
 
 	kfree(video->attached_array);
 	kfree(video);
+
+	return 0;
 }
 
 static void acpi_video_bus_register_backlight_work(struct work_struct *ignored)

@@ -485,10 +485,8 @@ int __ssam_register_clients(struct device *parent, struct ssam_controller *ctrl,
 		 * device, so ignore it and continue with the next one.
 		 */
 		status = ssam_add_client_device(parent, ctrl, child);
-		if (status && status != -ENODEV) {
-			fwnode_handle_put(child);
+		if (status && status != -ENODEV)
 			goto err;
-		}
 	}
 
 	return 0;

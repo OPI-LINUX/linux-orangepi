@@ -2607,10 +2607,11 @@ static int nilfs_segctor_thread(void *arg)
 	goto loop;
 
  end_thread:
+	spin_unlock(&sci->sc_state_lock);
+
 	/* end sync. */
 	sci->sc_task = NULL;
 	wake_up(&sci->sc_wait_task); /* for nilfs_segctor_kill_thread() */
-	spin_unlock(&sci->sc_state_lock);
 	return 0;
 }
 
@@ -2751,7 +2752,7 @@ static void nilfs_segctor_destroy(struct nilfs_sc_info *sci)
 
 	down_write(&nilfs->ns_segctor_sem);
 
-	timer_shutdown_sync(&sci->sc_timer);
+	del_timer_sync(&sci->sc_timer);
 	kfree(sci);
 }
 

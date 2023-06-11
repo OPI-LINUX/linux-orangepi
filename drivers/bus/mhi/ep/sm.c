@@ -63,23 +63,24 @@ int mhi_ep_set_m0_state(struct mhi_ep_cntrl *mhi_cntrl)
 	int ret;
 
 	/* If MHI is in M3, resume suspended channels */
-	mutex_lock(&mhi_cntrl->state_lock);
-
+	spin_lock_bh(&mhi_cntrl->state_lock);
 	old_state = mhi_cntrl->mhi_state;
 	if (old_state == MHI_STATE_M3)
 		mhi_ep_resume_channels(mhi_cntrl);
 
 	ret = mhi_ep_set_mhi_state(mhi_cntrl, MHI_STATE_M0);
+	spin_unlock_bh(&mhi_cntrl->state_lock);
+
 	if (ret) {
 		mhi_ep_handle_syserr(mhi_cntrl);
-		goto err_unlock;
+		return ret;
 	}
 
 	/* Signal host that the device moved to M0 */
 	ret = mhi_ep_send_state_change_event(mhi_cntrl, MHI_STATE_M0);
 	if (ret) {
 		dev_err(dev, "Failed sending M0 state change event\n");
-		goto err_unlock;
+		return ret;
 	}
 
 	if (old_state == MHI_STATE_READY) {
@@ -87,14 +88,11 @@ int mhi_ep_set_m0_state(struct mhi_ep_cntrl *mhi_cntrl)
 		ret = mhi_ep_send_ee_event(mhi_cntrl, MHI_EE_AMSS);
 		if (ret) {
 			dev_err(dev, "Failed sending AMSS EE event\n");
-			goto err_unlock;
+			return ret;
 		}
 	}
 
-err_unlock:
-	mutex_unlock(&mhi_cntrl->state_lock);
-
-	return ret;
+	return 0;
 }
 
 int mhi_ep_set_m3_state(struct mhi_ep_cntrl *mhi_cntrl)
@@ -102,12 +100,13 @@ int mhi_ep_set_m3_state(struct mhi_ep_cntrl *mhi_cntrl)
 	struct device *dev = &mhi_cntrl->mhi_dev->dev;
 	int ret;
 
-	mutex_lock(&mhi_cntrl->state_lock);
-
+	spin_lock_bh(&mhi_cntrl->state_lock);
 	ret = mhi_ep_set_mhi_state(mhi_cntrl, MHI_STATE_M3);
+	spin_unlock_bh(&mhi_cntrl->state_lock);
+
 	if (ret) {
 		mhi_ep_handle_syserr(mhi_cntrl);
-		goto err_unlock;
+		return ret;
 	}
 
 	mhi_ep_suspend_channels(mhi_cntrl);
@@ -116,13 +115,10 @@ int mhi_ep_set_m3_state(struct mhi_ep_cntrl *mhi_cntrl)
 	ret = mhi_ep_send_state_change_event(mhi_cntrl, MHI_STATE_M3);
 	if (ret) {
 		dev_err(dev, "Failed sending M3 state change event\n");
-		goto err_unlock;
+		return ret;
 	}
 
-err_unlock:
-	mutex_unlock(&mhi_cntrl->state_lock);
-
-	return ret;
+	return 0;
 }
 
 int mhi_ep_set_ready_state(struct mhi_ep_cntrl *mhi_cntrl)
@@ -131,24 +127,22 @@ int mhi_ep_set_ready_state(struct mhi_ep_cntrl *mhi_cntrl)
 	enum mhi_state mhi_state;
 	int ret, is_ready;
 
-	mutex_lock(&mhi_cntrl->state_lock);
-
+	spin_lock_bh(&mhi_cntrl->state_lock);
 	/* Ensure that the MHISTATUS is set to RESET by host */
 	mhi_state = mhi_ep_mmio_masked_read(mhi_cntrl, EP_MHISTATUS, MHISTATUS_MHISTATE_MASK);
 	is_ready = mhi_ep_mmio_masked_read(mhi_cntrl, EP_MHISTATUS, MHISTATUS_READY_MASK);
 
 	if (mhi_state != MHI_STATE_RESET || is_ready) {
 		dev_err(dev, "READY state transition failed. MHI host not in RESET state\n");
-		ret = -EIO;
-		goto err_unlock;
+		spin_unlock_bh(&mhi_cntrl->state_lock);
+		return -EIO;
 	}
 
 	ret = mhi_ep_set_mhi_state(mhi_cntrl, MHI_STATE_READY);
+	spin_unlock_bh(&mhi_cntrl->state_lock);
+
 	if (ret)
 		mhi_ep_handle_syserr(mhi_cntrl);
-
-err_unlock:
-	mutex_unlock(&mhi_cntrl->state_lock);
 
 	return ret;
 }

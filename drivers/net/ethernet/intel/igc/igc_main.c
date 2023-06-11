@@ -4802,10 +4802,10 @@ void igc_update_stats(struct igc_adapter *adapter)
 		}
 
 		do {
-			start = u64_stats_fetch_begin(&ring->rx_syncp);
+			start = u64_stats_fetch_begin_irq(&ring->rx_syncp);
 			_bytes = ring->rx_stats.bytes;
 			_packets = ring->rx_stats.packets;
-		} while (u64_stats_fetch_retry(&ring->rx_syncp, start));
+		} while (u64_stats_fetch_retry_irq(&ring->rx_syncp, start));
 		bytes += _bytes;
 		packets += _packets;
 	}
@@ -4819,10 +4819,10 @@ void igc_update_stats(struct igc_adapter *adapter)
 		struct igc_ring *ring = adapter->tx_ring[i];
 
 		do {
-			start = u64_stats_fetch_begin(&ring->tx_syncp);
+			start = u64_stats_fetch_begin_irq(&ring->tx_syncp);
 			_bytes = ring->tx_stats.bytes;
 			_packets = ring->tx_stats.packets;
-		} while (u64_stats_fetch_retry(&ring->tx_syncp, start));
+		} while (u64_stats_fetch_retry_irq(&ring->tx_syncp, start));
 		bytes += _bytes;
 		packets += _packets;
 	}
@@ -5519,13 +5519,6 @@ static void igc_watchdog_task(struct work_struct *work)
 				break;
 			}
 
-			/* Once the launch time has been set on the wire, there
-			 * is a delay before the link speed can be determined
-			 * based on link-up activity. Write into the register
-			 * as soon as we know the correct link speed.
-			 */
-			igc_tsn_adjust_txtime_offset(adapter);
-
 			if (adapter->link_speed != SPEED_1000)
 				goto no_wait;
 
@@ -6007,18 +6000,18 @@ static bool validate_schedule(struct igc_adapter *adapter,
 		if (e->command != TC_TAPRIO_CMD_SET_GATES)
 			return false;
 
-		for (i = 0; i < adapter->num_tx_queues; i++)
-			if (e->gate_mask & BIT(i)) {
+		for (i = 0; i < adapter->num_tx_queues; i++) {
+			if (e->gate_mask & BIT(i))
 				queue_uses[i]++;
 
-				/* There are limitations: A single queue cannot
-				 * be opened and closed multiple times per cycle
-				 * unless the gate stays open. Check for it.
-				 */
-				if (queue_uses[i] > 1 &&
-				    !(prev->gate_mask & BIT(i)))
-					return false;
-			}
+			/* There are limitations: A single queue cannot be
+			 * opened and closed multiple times per cycle unless the
+			 * gate stays open. Check for it.
+			 */
+			if (queue_uses[i] > 1 &&
+			    !(prev->gate_mask & BIT(i)))
+				return false;
+		}
 	}
 
 	return true;

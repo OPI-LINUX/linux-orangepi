@@ -20,8 +20,8 @@
 struct delay_class {
 	struct dm_dev *dev;
 	sector_t start;
-	unsigned int delay;
-	unsigned int ops;
+	unsigned delay;
+	unsigned ops;
 };
 
 struct delay_c {
@@ -305,7 +305,7 @@ static int delay_map(struct dm_target *ti, struct bio *bio)
 	DMEMIT("%s %llu %u", (c)->dev->name, (unsigned long long)(c)->start, (c)->delay)
 
 static void delay_status(struct dm_target *ti, status_type_t type,
-			 unsigned int status_flags, char *result, unsigned int maxlen)
+			 unsigned status_flags, char *result, unsigned maxlen)
 {
 	struct delay_c *dc = ti->private;
 	int sz = 0;

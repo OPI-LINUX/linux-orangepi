@@ -508,7 +508,7 @@ static void nd_async_device_unregister(void *d, async_cookie_t cookie)
 	put_device(dev);
 }
 
-static void __nd_device_register(struct device *dev, bool sync)
+void nd_device_register(struct device *dev)
 {
 	if (!dev)
 		return;
@@ -531,23 +531,10 @@ static void __nd_device_register(struct device *dev, bool sync)
 	}
 	get_device(dev);
 
-	if (sync)
-		nd_async_device_register(dev, 0);
-	else
-		async_schedule_dev_domain(nd_async_device_register, dev,
-					  &nd_async_domain);
-}
-
-void nd_device_register(struct device *dev)
-{
-	__nd_device_register(dev, false);
+	async_schedule_dev_domain(nd_async_device_register, dev,
+				  &nd_async_domain);
 }
 EXPORT_SYMBOL(nd_device_register);
-
-void nd_device_register_sync(struct device *dev)
-{
-	__nd_device_register(dev, true);
-}
 
 void nd_device_unregister(struct device *dev, enum nd_async_mode mode)
 {

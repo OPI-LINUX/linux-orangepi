@@ -254,6 +254,8 @@ struct kfd_dev {
 	struct amdgpu_device *adev;
 
 	struct kfd_device_info device_info;
+	struct pci_dev *pdev;
+	struct drm_device *ddev;
 
 	unsigned int id;		/* topology stub index */
 
@@ -926,7 +928,6 @@ bool kfd_dev_is_large_bar(struct kfd_dev *dev);
 
 int kfd_process_create_wq(void);
 void kfd_process_destroy_wq(void);
-void kfd_cleanup_processes(void);
 struct kfd_process *kfd_create_process(struct file *filep);
 struct kfd_process *kfd_get_process(const struct task_struct *task);
 struct kfd_process *kfd_lookup_process_by_pasid(u32 pasid);
@@ -1364,7 +1365,7 @@ void kfd_dec_compute_active(struct kfd_dev *dev);
 static inline int kfd_devcgroup_check_permission(struct kfd_dev *kfd)
 {
 #if defined(CONFIG_CGROUP_DEVICE) || defined(CONFIG_CGROUP_BPF)
-	struct drm_device *ddev = adev_to_drm(kfd->adev);
+	struct drm_device *ddev = kfd->ddev;
 
 	return devcgroup_check_permission(DEVCG_DEV_CHAR, DRM_MAJOR,
 					  ddev->render->index,

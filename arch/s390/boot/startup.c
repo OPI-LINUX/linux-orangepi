@@ -57,17 +57,16 @@ unsigned long mem_safe_offset(void)
 }
 #endif
 
-static unsigned long rescue_initrd(unsigned long safe_addr)
+static void rescue_initrd(unsigned long addr)
 {
 	if (!IS_ENABLED(CONFIG_BLK_DEV_INITRD))
-		return safe_addr;
+		return;
 	if (!initrd_data.start || !initrd_data.size)
-		return safe_addr;
-	if (initrd_data.start < safe_addr) {
-		memmove((void *)safe_addr, (void *)initrd_data.start, initrd_data.size);
-		initrd_data.start = safe_addr;
-	}
-	return initrd_data.start + initrd_data.size;
+		return;
+	if (addr <= initrd_data.start)
+		return;
+	memmove((void *)addr, (void *)initrd_data.start, initrd_data.size);
+	initrd_data.start = addr;
 }
 
 static void copy_bootdata(void)
@@ -251,7 +250,6 @@ static unsigned long reserve_amode31(unsigned long safe_addr)
 
 void startup_kernel(void)
 {
-	unsigned long max_physmem_end;
 	unsigned long random_lma;
 	unsigned long safe_addr;
 	void *img;
@@ -267,13 +265,12 @@ void startup_kernel(void)
 	safe_addr = reserve_amode31(safe_addr);
 	safe_addr = read_ipl_report(safe_addr);
 	uv_query_info();
-	safe_addr = rescue_initrd(safe_addr);
+	rescue_initrd(safe_addr);
 	sclp_early_read_info();
 	setup_boot_command_line();
 	parse_boot_command_line();
 	sanitize_prot_virt_host();
-	max_physmem_end = detect_memory(&safe_addr);
-	setup_ident_map_size(max_physmem_end);
+	setup_ident_map_size(detect_memory());
 	setup_vmalloc_size();
 	setup_kernel_memory_layout();
 

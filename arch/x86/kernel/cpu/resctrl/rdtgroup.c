@@ -78,19 +78,6 @@ void rdt_last_cmd_printf(const char *fmt, ...)
 	va_end(ap);
 }
 
-void rdt_staged_configs_clear(void)
-{
-	struct rdt_resource *r;
-	struct rdt_domain *dom;
-
-	lockdep_assert_held(&rdtgroup_mutex);
-
-	for_each_alloc_capable_rdt_resource(r) {
-		list_for_each_entry(dom, &r->domains, list)
-			memset(dom->staged_config, 0, sizeof(dom->staged_config));
-	}
-}
-
 /*
  * Trivial allocator for CLOSIDs. Since h/w only supports a small number,
  * we can keep a bitmap of free CLOSIDs in a single integer.
@@ -327,7 +314,7 @@ static void update_cpu_closid_rmid(void *info)
 	 * executing task might have its own closid selected. Just reuse
 	 * the context switch code.
 	 */
-	resctrl_sched_in(current);
+	resctrl_sched_in();
 }
 
 /*
@@ -548,7 +535,7 @@ static void _update_task_closid_rmid(void *task)
 	 * Otherwise, the MSR is updated when the task is scheduled in.
 	 */
 	if (task == current)
-		resctrl_sched_in(task);
+		resctrl_sched_in();
 }
 
 static void update_task_closid_rmid(struct task_struct *t)
@@ -2864,9 +2851,7 @@ static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 {
 	struct resctrl_schema *s;
 	struct rdt_resource *r;
-	int ret = 0;
-
-	rdt_staged_configs_clear();
+	int ret;
 
 	list_for_each_entry(s, &resctrl_schema_all, list) {
 		r = s->res;
@@ -2877,22 +2862,20 @@ static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 		} else {
 			ret = rdtgroup_init_cat(s, rdtgrp->closid);
 			if (ret < 0)
-				goto out;
+				return ret;
 		}
 
 		ret = resctrl_arch_update_domains(r, rdtgrp->closid);
 		if (ret < 0) {
 			rdt_last_cmd_puts("Failed to initialize allocations\n");
-			goto out;
+			return ret;
 		}
 
 	}
 
 	rdtgrp->mode = RDT_MODE_SHAREABLE;
 
-out:
-	rdt_staged_configs_clear();
-	return ret;
+	return 0;
 }
 
 static int mkdir_rdt_prepare(struct kernfs_node *parent_kn,

@@ -808,8 +808,9 @@ static int tcphy_get_mode(struct rockchip_typec_phy *tcphy)
 	struct extcon_dev *edev = tcphy->extcon;
 	union extcon_property_value property;
 	unsigned int id;
+	bool ufp, dp;
 	u8 mode;
-	int ret, ufp, dp;
+	int ret;
 
 	if (!edev)
 		return MODE_DFP_USB;
@@ -820,10 +821,10 @@ static int tcphy_get_mode(struct rockchip_typec_phy *tcphy)
 	mode = MODE_DFP_USB;
 	id = EXTCON_USB_HOST;
 
-	if (ufp > 0) {
+	if (ufp) {
 		mode = MODE_UFP_USB;
 		id = EXTCON_USB;
-	} else if (dp > 0) {
+	} else if (dp) {
 		mode = MODE_DFP_DP;
 		id = EXTCON_DISP_DP;
 

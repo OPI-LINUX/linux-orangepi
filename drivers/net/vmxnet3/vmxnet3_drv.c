@@ -1688,9 +1688,7 @@ not_lro:
 			if (unlikely(rcd->ts))
 				__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), rcd->tci);
 
-			/* Use GRO callback if UPT is enabled */
-			if ((adapter->netdev->features & NETIF_F_LRO) &&
-			    !rq->shared->updateRxProd)
+			if (adapter->netdev->features & NETIF_F_LRO)
 				netif_receive_skb(skb);
 			else
 				napi_gro_receive(&rq->napi, skb);

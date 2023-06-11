@@ -19,7 +19,8 @@
 #include "blk-wbt.h"
 
 /*
- * Mark a hardware queue as needing a restart.
+ * Mark a hardware queue as needing a restart. For shared queues, maintain
+ * a count of how many hardware queues are marked for restart.
  */
 void blk_mq_sched_mark_restart_hctx(struct blk_mq_hw_ctx *hctx)
 {
@@ -81,7 +82,7 @@ dispatch:
 /*
  * Only SCSI implements .get_budget and .put_budget, and SCSI restarts
  * its queue by itself in its completion handler, so we don't need to
- * restart queue if .get_budget() fails to get the budget.
+ * restart queue if .get_budget() returns BLK_STS_NO_RESOURCE.
  *
  * Returns -EAGAIN if hctx->dispatch was found non-empty and run_work has to
  * be run again.  This is necessary to avoid starving flushes.
@@ -209,7 +210,7 @@ static struct blk_mq_ctx *blk_mq_next_ctx(struct blk_mq_hw_ctx *hctx,
 /*
  * Only SCSI implements .get_budget and .put_budget, and SCSI restarts
  * its queue by itself in its completion handler, so we don't need to
- * restart queue if .get_budget() fails to get the budget.
+ * restart queue if .get_budget() returns BLK_STS_NO_RESOURCE.
  *
  * Returns -EAGAIN if hctx->dispatch was found non-empty and run_work has to
  * be run again.  This is necessary to avoid starving flushes.
@@ -554,7 +555,6 @@ static int blk_mq_init_sched_shared_tags(struct request_queue *queue)
 	return 0;
 }
 
-/* caller must have a reference to @e, will grab another one if successful */
 int blk_mq_init_sched(struct request_queue *q, struct elevator_type *e)
 {
 	unsigned int flags = q->tag_set->flags;
@@ -562,6 +562,13 @@ int blk_mq_init_sched(struct request_queue *q, struct elevator_type *e)
 	struct elevator_queue *eq;
 	unsigned long i;
 	int ret;
+
+	if (!e) {
+		blk_queue_flag_clear(QUEUE_FLAG_SQ_SCHED, q);
+		q->elevator = NULL;
+		q->nr_requests = q->tag_set->queue_depth;
+		return 0;
+	}
 
 	/*
 	 * Default to double of smaller one between hw queue_depth and 128,

@@ -1373,6 +1373,7 @@ static void
 __lpfc_sli_release_iocbq_s4(struct lpfc_hba *phba, struct lpfc_iocbq *iocbq)
 {
 	struct lpfc_sglq *sglq;
+	size_t start_clean = offsetof(struct lpfc_iocbq, wqe);
 	unsigned long iflag = 0;
 	struct lpfc_sli_ring *pring;
 
@@ -1429,7 +1430,7 @@ out:
 	/*
 	 * Clean all volatile data fields, preserve iotag and node struct.
 	 */
-	memset_startat(iocbq, 0, wqe);
+	memset((char *)iocbq + start_clean, 0, sizeof(*iocbq) - start_clean);
 	iocbq->sli4_lxritag = NO_XRI;
 	iocbq->sli4_xritag = NO_XRI;
 	iocbq->cmd_flag &= ~(LPFC_IO_NVME | LPFC_IO_NVMET | LPFC_IO_CMF |
@@ -1452,11 +1453,12 @@ out:
 static void
 __lpfc_sli_release_iocbq_s3(struct lpfc_hba *phba, struct lpfc_iocbq *iocbq)
 {
+	size_t start_clean = offsetof(struct lpfc_iocbq, iocb);
 
 	/*
 	 * Clean all volatile data fields, preserve iotag and node struct.
 	 */
-	memset_startat(iocbq, 0, iocb);
+	memset((char*)iocbq + start_clean, 0, sizeof(*iocbq) - start_clean);
 	iocbq->sli4_xritag = NO_XRI;
 	list_add_tail(&iocbq->list, &phba->lpfc_iocb_list);
 }
@@ -1846,24 +1848,6 @@ lpfc_cmf_sync_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *cmdiocb,
 				  phba->cmf_link_byte_count);
 		bwpcent = div64_u64(bw * 100 + slop,
 				    phba->cmf_link_byte_count);
-		/* Because of bytes adjustment due to shorter timer in
-		 * lpfc_cmf_timer() the cmf_link_byte_count can be shorter and
-		 * may seem like BW is above 100%.
-		 */
-		if (bwpcent > 100)
-			bwpcent = 100;
-
-		if (phba->cmf_max_bytes_per_interval < bw &&
-		    bwpcent > 95)
-			lpfc_printf_log(phba, KERN_INFO, LOG_CGN_MGMT,
-					"6208 Congestion bandwidth "
-					"limits removed\n");
-		else if ((phba->cmf_max_bytes_per_interval > bw) &&
-			 ((bwpcent + pcent) <= 100) && ((bwpcent + pcent) > 95))
-			lpfc_printf_log(phba, KERN_INFO, LOG_CGN_MGMT,
-					"6209 Congestion bandwidth "
-					"limits in effect\n");
-
 		if (asig) {
 			lpfc_printf_log(phba, KERN_INFO, LOG_CGN_MGMT,
 					"6237 BW Threshold %lld%% (%lld): "
@@ -8370,7 +8354,6 @@ no_cmf:
 			phba->cgn_i = NULL;
 			/* Ensure CGN Mode is off */
 			phba->cmf_active_mode = LPFC_CFG_OFF;
-			sli4_params->cmf = 0;
 			return 0;
 		}
 	}
@@ -20819,7 +20802,6 @@ lpfc_wr_object(struct lpfc_hba *phba, struct list_head *dmabuf_list,
 	struct lpfc_mbx_wr_object *wr_object;
 	LPFC_MBOXQ_t *mbox;
 	int rc = 0, i = 0;
-	int mbox_status = 0;
 	uint32_t shdr_status, shdr_add_status, shdr_add_status_2;
 	uint32_t shdr_change_status = 0, shdr_csf = 0;
 	uint32_t mbox_tmo;
@@ -20865,15 +20847,11 @@ lpfc_wr_object(struct lpfc_hba *phba, struct list_head *dmabuf_list,
 	wr_object->u.request.bde_count = i;
 	bf_set(lpfc_wr_object_write_length, &wr_object->u.request, written);
 	if (!phba->sli4_hba.intr_enable)
-		mbox_status = lpfc_sli_issue_mbox(phba, mbox, MBX_POLL);
+		rc = lpfc_sli_issue_mbox(phba, mbox, MBX_POLL);
 	else {
 		mbox_tmo = lpfc_mbox_tmo_val(phba, mbox);
-		mbox_status = lpfc_sli_issue_mbox_wait(phba, mbox, mbox_tmo);
+		rc = lpfc_sli_issue_mbox_wait(phba, mbox, mbox_tmo);
 	}
-
-	/* The mbox status needs to be maintained to detect MBOX_TIMEOUT. */
-	rc = mbox_status;
-
 	/* The IOCTL status is embedded in the mailbox subheader. */
 	shdr_status = bf_get(lpfc_mbox_hdr_status,
 			     &wr_object->header.cfg_shdr.response);
@@ -20888,6 +20866,10 @@ lpfc_wr_object(struct lpfc_hba *phba, struct list_head *dmabuf_list,
 				  &wr_object->u.response);
 	}
 
+	if (!phba->sli4_hba.intr_enable)
+		mempool_free(mbox, phba->mbox_mem_pool);
+	else if (rc != MBX_TIMEOUT)
+		mempool_free(mbox, phba->mbox_mem_pool);
 	if (shdr_status || shdr_add_status || shdr_add_status_2 || rc) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 				"3025 Write Object mailbox failed with "
@@ -20905,12 +20887,6 @@ lpfc_wr_object(struct lpfc_hba *phba, struct list_head *dmabuf_list,
 		lpfc_log_fw_write_cmpl(phba, shdr_status, shdr_add_status,
 				       shdr_add_status_2, shdr_change_status,
 				       shdr_csf);
-
-	if (!phba->sli4_hba.intr_enable)
-		mempool_free(mbox, phba->mbox_mem_pool);
-	else if (mbox_status != MBX_TIMEOUT)
-		mempool_free(mbox, phba->mbox_mem_pool);
-
 	return rc;
 }
 
@@ -21903,20 +21879,20 @@ lpfc_get_io_buf_from_private_pool(struct lpfc_hba *phba,
 static struct lpfc_io_buf *
 lpfc_get_io_buf_from_expedite_pool(struct lpfc_hba *phba)
 {
-	struct lpfc_io_buf *lpfc_ncmd = NULL, *iter;
+	struct lpfc_io_buf *lpfc_ncmd;
 	struct lpfc_io_buf *lpfc_ncmd_next;
 	unsigned long iflag;
 	struct lpfc_epd_pool *epd_pool;
 
 	epd_pool = &phba->epd_pool;
+	lpfc_ncmd = NULL;
 
 	spin_lock_irqsave(&epd_pool->lock, iflag);
 	if (epd_pool->count > 0) {
-		list_for_each_entry_safe(iter, lpfc_ncmd_next,
+		list_for_each_entry_safe(lpfc_ncmd, lpfc_ncmd_next,
 					 &epd_pool->list, list) {
-			list_del(&iter->list);
+			list_del(&lpfc_ncmd->list);
 			epd_pool->count--;
-			lpfc_ncmd = iter;
 			break;
 		}
 	}
@@ -22112,6 +22088,10 @@ lpfc_read_object(struct lpfc_hba *phba, char *rdobject, uint32_t *datap,
 	union lpfc_sli4_cfg_shdr *shdr;
 	struct lpfc_dmabuf *pcmd;
 	u32 rd_object_name[LPFC_MBX_OBJECT_NAME_LEN_DW] = {0};
+
+	/* sanity check on queue memory */
+	if (!datap)
+		return -ENODEV;
 
 	mbox = mempool_alloc(phba->mbox_mem_pool, GFP_KERNEL);
 	if (!mbox)

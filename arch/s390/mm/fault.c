@@ -96,20 +96,6 @@ static enum fault_type get_fault_type(struct pt_regs *regs)
 	return KERNEL_FAULT;
 }
 
-static unsigned long get_fault_address(struct pt_regs *regs)
-{
-	unsigned long trans_exc_code = regs->int_parm_long;
-
-	return trans_exc_code & __FAIL_ADDR_MASK;
-}
-
-static bool fault_is_write(struct pt_regs *regs)
-{
-	unsigned long trans_exc_code = regs->int_parm_long;
-
-	return (trans_exc_code & store_indication) == 0x400;
-}
-
 static int bad_address(void *p)
 {
 	unsigned long dummy;
@@ -242,26 +228,15 @@ static noinline void do_sigsegv(struct pt_regs *regs, int si_code)
 			(void __user *)(regs->int_parm_long & __FAIL_ADDR_MASK));
 }
 
-static noinline void do_no_context(struct pt_regs *regs, vm_fault_t fault)
+static noinline void do_no_context(struct pt_regs *regs)
 {
-	enum fault_type fault_type;
-	unsigned long address;
-	bool is_write;
-
 	if (fixup_exception(regs))
 		return;
-	fault_type = get_fault_type(regs);
-	if ((fault_type == KERNEL_FAULT) && (fault == VM_FAULT_BADCONTEXT)) {
-		address = get_fault_address(regs);
-		is_write = fault_is_write(regs);
-		if (kfence_handle_page_fault(address, is_write, regs))
-			return;
-	}
 	/*
 	 * Oops. The kernel tried to access some bad page. We'll have to
 	 * terminate things with extreme prejudice.
 	 */
-	if (fault_type == KERNEL_FAULT)
+	if (get_fault_type(regs) == KERNEL_FAULT)
 		printk(KERN_ALERT "Unable to handle kernel pointer dereference"
 		       " in virtual kernel address space\n");
 	else
@@ -280,7 +255,7 @@ static noinline void do_low_address(struct pt_regs *regs)
 		die (regs, "Low-address protection");
 	}
 
-	do_no_context(regs, VM_FAULT_BADACCESS);
+	do_no_context(regs);
 }
 
 static noinline void do_sigbus(struct pt_regs *regs)
@@ -311,28 +286,28 @@ static noinline void do_fault_error(struct pt_regs *regs, vm_fault_t fault)
 		fallthrough;
 	case VM_FAULT_BADCONTEXT:
 	case VM_FAULT_PFAULT:
-		do_no_context(regs, fault);
+		do_no_context(regs);
 		break;
 	case VM_FAULT_SIGNAL:
 		if (!user_mode(regs))
-			do_no_context(regs, fault);
+			do_no_context(regs);
 		break;
 	default: /* fault & VM_FAULT_ERROR */
 		if (fault & VM_FAULT_OOM) {
 			if (!user_mode(regs))
-				do_no_context(regs, fault);
+				do_no_context(regs);
 			else
 				pagefault_out_of_memory();
 		} else if (fault & VM_FAULT_SIGSEGV) {
 			/* Kernel mode? Handle exceptions or die */
 			if (!user_mode(regs))
-				do_no_context(regs, fault);
+				do_no_context(regs);
 			else
 				do_sigsegv(regs, SEGV_MAPERR);
 		} else if (fault & VM_FAULT_SIGBUS) {
 			/* Kernel mode? Handle exceptions or die */
 			if (!user_mode(regs))
-				do_no_context(regs, fault);
+				do_no_context(regs);
 			else
 				do_sigbus(regs);
 		} else
@@ -359,6 +334,7 @@ static inline vm_fault_t do_exception(struct pt_regs *regs, int access)
 	struct mm_struct *mm;
 	struct vm_area_struct *vma;
 	enum fault_type type;
+	unsigned long trans_exc_code;
 	unsigned long address;
 	unsigned int flags;
 	vm_fault_t fault;
@@ -375,8 +351,9 @@ static inline vm_fault_t do_exception(struct pt_regs *regs, int access)
 		return 0;
 
 	mm = tsk->mm;
-	address = get_fault_address(regs);
-	is_write = fault_is_write(regs);
+	trans_exc_code = regs->int_parm_long;
+	address = trans_exc_code & __FAIL_ADDR_MASK;
+	is_write = (trans_exc_code & store_indication) == 0x400;
 
 	/*
 	 * Verify that the fault happened in user space, that
@@ -387,6 +364,8 @@ static inline vm_fault_t do_exception(struct pt_regs *regs, int access)
 	type = get_fault_type(regs);
 	switch (type) {
 	case KERNEL_FAULT:
+		if (kfence_handle_page_fault(address, is_write, regs))
+			return 0;
 		goto out;
 	case USER_FAULT:
 	case GMAP_FAULT:

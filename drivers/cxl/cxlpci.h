@@ -62,19 +62,14 @@ enum cxl_regloc_type {
 	CXL_REGLOC_RBI_TYPES
 };
 
-struct cdat_header {
-	__le32 length;
-	u8 revision;
-	u8 checksum;
-	u8 reserved[6];
-	__le32 sequence;
-} __packed;
+static inline resource_size_t cxl_regmap_to_base(struct pci_dev *pdev,
+						 struct cxl_register_map *map)
+{
+	if (map->block_offset == U64_MAX)
+		return CXL_RESOURCE_NONE;
 
-struct cdat_entry_header {
-	u8 type;
-	u8 reserved;
-	__le16 length;
-} __packed;
+	return pci_resource_start(pdev, map->barno) + map->block_offset;
+}
 
 int devm_cxl_port_enumerate_dports(struct cxl_port *port);
 struct cxl_dev_state;

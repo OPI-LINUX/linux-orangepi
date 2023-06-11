@@ -78,25 +78,32 @@ static struct page *brd_lookup_page(struct brd_device *brd, sector_t sector)
 }
 
 /*
- * Insert a new page for a given sector, if one does not already exist.
+ * Look up and return a brd's page for a given sector.
+ * If one does not exist, allocate an empty page, and insert that. Then
+ * return it.
  */
-static int brd_insert_page(struct brd_device *brd, sector_t sector, gfp_t gfp)
+static struct page *brd_insert_page(struct brd_device *brd, sector_t sector)
 {
 	pgoff_t idx;
 	struct page *page;
-	int ret = 0;
+	gfp_t gfp_flags;
 
 	page = brd_lookup_page(brd, sector);
 	if (page)
-		return 0;
+		return page;
 
-	page = alloc_page(gfp | __GFP_ZERO | __GFP_HIGHMEM);
+	/*
+	 * Must use NOIO because we don't want to recurse back into the
+	 * block or filesystem layers from page reclaim.
+	 */
+	gfp_flags = GFP_NOIO | __GFP_ZERO | __GFP_HIGHMEM;
+	page = alloc_page(gfp_flags);
 	if (!page)
-		return -ENOMEM;
+		return NULL;
 
-	if (radix_tree_maybe_preload(gfp)) {
+	if (radix_tree_preload(GFP_NOIO)) {
 		__free_page(page);
-		return -ENOMEM;
+		return NULL;
 	}
 
 	spin_lock(&brd->brd_lock);
@@ -105,17 +112,16 @@ static int brd_insert_page(struct brd_device *brd, sector_t sector, gfp_t gfp)
 	if (radix_tree_insert(&brd->brd_pages, idx, page)) {
 		__free_page(page);
 		page = radix_tree_lookup(&brd->brd_pages, idx);
-		if (!page)
-			ret = -ENOMEM;
-		else if (page->index != idx)
-			ret = -EIO;
+		BUG_ON(!page);
+		BUG_ON(page->index != idx);
 	} else {
 		brd->brd_nr_pages++;
 	}
 	spin_unlock(&brd->brd_lock);
 
 	radix_tree_preload_end();
-	return ret;
+
+	return page;
 }
 
 /*
@@ -164,22 +170,20 @@ static void brd_free_pages(struct brd_device *brd)
 /*
  * copy_to_brd_setup must be called before copy_to_brd. It may sleep.
  */
-static int copy_to_brd_setup(struct brd_device *brd, sector_t sector, size_t n,
-			     gfp_t gfp)
+static int copy_to_brd_setup(struct brd_device *brd, sector_t sector, size_t n)
 {
 	unsigned int offset = (sector & (PAGE_SECTORS-1)) << SECTOR_SHIFT;
 	size_t copy;
-	int ret;
 
 	copy = min_t(size_t, n, PAGE_SIZE - offset);
-	ret = brd_insert_page(brd, sector, gfp);
-	if (ret)
-		return ret;
+	if (!brd_insert_page(brd, sector))
+		return -ENOSPC;
 	if (copy < n) {
 		sector += copy >> SECTOR_SHIFT;
-		ret = brd_insert_page(brd, sector, gfp);
+		if (!brd_insert_page(brd, sector))
+			return -ENOSPC;
 	}
-	return ret;
+	return 0;
 }
 
 /*
@@ -252,26 +256,20 @@ static void copy_from_brd(void *dst, struct brd_device *brd,
  * Process a single bvec of a bio.
  */
 static int brd_do_bvec(struct brd_device *brd, struct page *page,
-			unsigned int len, unsigned int off, blk_opf_t opf,
+			unsigned int len, unsigned int off, enum req_op op,
 			sector_t sector)
 {
 	void *mem;
 	int err = 0;
 
-	if (op_is_write(opf)) {
-		/*
-		 * Must use NOIO because we don't want to recurse back into the
-		 * block or filesystem layers from page reclaim.
-		 */
-		gfp_t gfp = opf & REQ_NOWAIT ? GFP_NOWAIT : GFP_NOIO;
-
-		err = copy_to_brd_setup(brd, sector, len, gfp);
+	if (op_is_write(op)) {
+		err = copy_to_brd_setup(brd, sector, len);
 		if (err)
 			goto out;
 	}
 
 	mem = kmap_atomic(page);
-	if (!op_is_write(opf)) {
+	if (!op_is_write(op)) {
 		copy_from_brd(mem + off, brd, sector, len);
 		flush_dcache_page(page);
 	} else {
@@ -300,12 +298,8 @@ static void brd_submit_bio(struct bio *bio)
 				(len & (SECTOR_SIZE - 1)));
 
 		err = brd_do_bvec(brd, bvec.bv_page, len, bvec.bv_offset,
-				  bio->bi_opf, sector);
+				  bio_op(bio), sector);
 		if (err) {
-			if (err == -ENOMEM && bio->bi_opf & REQ_NOWAIT) {
-				bio_wouldblock_error(bio);
-				return;
-			}
 			bio_io_error(bio);
 			return;
 		}
@@ -418,7 +412,6 @@ static int brd_alloc(int i)
 	/* Tell the block layer that this is not a rotational device */
 	blk_queue_flag_set(QUEUE_FLAG_NONROT, disk->queue);
 	blk_queue_flag_clear(QUEUE_FLAG_ADD_RANDOM, disk->queue);
-	blk_queue_flag_set(QUEUE_FLAG_NOWAIT, disk->queue);
 	err = add_disk(disk);
 	if (err)
 		goto out_cleanup_disk;

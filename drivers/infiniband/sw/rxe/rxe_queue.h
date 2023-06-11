@@ -35,26 +35,19 @@
 /**
  * enum queue_type - type of queue
  * @QUEUE_TYPE_TO_CLIENT:	Queue is written by rxe driver and
- *				read by client which may be a user space
- *				application or a kernel ulp.
- *				Used by rxe internals only.
+ *				read by client. Used by rxe driver only.
  * @QUEUE_TYPE_FROM_CLIENT:	Queue is written by client and
- *				read by rxe driver.
- *				Used by rxe internals only.
- * @QUEUE_TYPE_FROM_ULP:	Queue is written by kernel ulp and
- *				read by rxe driver.
- *				Used by kernel verbs APIs only on
- *				behalf of ulps.
- * @QUEUE_TYPE_TO_ULP:		Queue is written by rxe driver and
- *				read by kernel ulp.
- *				Used by kernel verbs APIs only on
- *				behalf of ulps.
+ *				read by rxe driver. Used by rxe driver only.
+ * @QUEUE_TYPE_TO_DRIVER:	Queue is written by client and
+ *				read by rxe driver. Used by kernel client only.
+ * @QUEUE_TYPE_FROM_DRIVER:	Queue is written by rxe driver and
+ *				read by client. Used by kernel client only.
  */
 enum queue_type {
 	QUEUE_TYPE_TO_CLIENT,
 	QUEUE_TYPE_FROM_CLIENT,
-	QUEUE_TYPE_FROM_ULP,
-	QUEUE_TYPE_TO_ULP,
+	QUEUE_TYPE_TO_DRIVER,
+	QUEUE_TYPE_FROM_DRIVER,
 };
 
 struct rxe_queue_buf;
@@ -69,9 +62,9 @@ struct rxe_queue {
 	u32			index_mask;
 	enum queue_type		type;
 	/* private copy of index for shared queues between
-	 * driver and clients. Driver reads and writes
+	 * kernel space and user space. Kernel reads and writes
 	 * this copy and then replicates to rxe_queue_buf
-	 * for read access by clients.
+	 * for read access by user space.
 	 */
 	u32			index;
 };
@@ -104,20 +97,18 @@ static inline u32 queue_get_producer(const struct rxe_queue *q,
 
 	switch (type) {
 	case QUEUE_TYPE_FROM_CLIENT:
-		/* used by rxe, client owns the index */
+		/* protect user index */
 		prod = smp_load_acquire(&q->buf->producer_index);
 		break;
 	case QUEUE_TYPE_TO_CLIENT:
-		/* used by rxe which owns the index */
 		prod = q->index;
 		break;
-	case QUEUE_TYPE_FROM_ULP:
-		/* used by ulp which owns the index */
-		prod = q->buf->producer_index;
-		break;
-	case QUEUE_TYPE_TO_ULP:
-		/* used by ulp, rxe owns the index */
+	case QUEUE_TYPE_FROM_DRIVER:
+		/* protect driver index */
 		prod = smp_load_acquire(&q->buf->producer_index);
+		break;
+	case QUEUE_TYPE_TO_DRIVER:
+		prod = q->buf->producer_index;
 		break;
 	}
 
@@ -131,20 +122,18 @@ static inline u32 queue_get_consumer(const struct rxe_queue *q,
 
 	switch (type) {
 	case QUEUE_TYPE_FROM_CLIENT:
-		/* used by rxe which owns the index */
 		cons = q->index;
 		break;
 	case QUEUE_TYPE_TO_CLIENT:
-		/* used by rxe, client owns the index */
+		/* protect user index */
 		cons = smp_load_acquire(&q->buf->consumer_index);
 		break;
-	case QUEUE_TYPE_FROM_ULP:
-		/* used by ulp, rxe owns the index */
-		cons = smp_load_acquire(&q->buf->consumer_index);
-		break;
-	case QUEUE_TYPE_TO_ULP:
-		/* used by ulp which owns the index */
+	case QUEUE_TYPE_FROM_DRIVER:
 		cons = q->buf->consumer_index;
+		break;
+	case QUEUE_TYPE_TO_DRIVER:
+		/* protect driver index */
+		cons = smp_load_acquire(&q->buf->consumer_index);
 		break;
 	}
 
@@ -183,31 +172,24 @@ static inline void queue_advance_producer(struct rxe_queue *q,
 
 	switch (type) {
 	case QUEUE_TYPE_FROM_CLIENT:
-		/* used by rxe, client owns the index */
-		if (WARN_ON(1))
-			pr_warn("%s: attempt to advance client index\n",
-				__func__);
+		pr_warn("%s: attempt to advance client index\n",
+			__func__);
 		break;
 	case QUEUE_TYPE_TO_CLIENT:
-		/* used by rxe which owns the index */
 		prod = q->index;
 		prod = (prod + 1) & q->index_mask;
 		q->index = prod;
-		/* release so client can read it safely */
+		/* protect user index */
 		smp_store_release(&q->buf->producer_index, prod);
 		break;
-	case QUEUE_TYPE_FROM_ULP:
-		/* used by ulp which owns the index */
+	case QUEUE_TYPE_FROM_DRIVER:
+		pr_warn("%s: attempt to advance driver index\n",
+			__func__);
+		break;
+	case QUEUE_TYPE_TO_DRIVER:
 		prod = q->buf->producer_index;
 		prod = (prod + 1) & q->index_mask;
-		/* release so rxe can read it safely */
-		smp_store_release(&q->buf->producer_index, prod);
-		break;
-	case QUEUE_TYPE_TO_ULP:
-		/* used by ulp, rxe owns the index */
-		if (WARN_ON(1))
-			pr_warn("%s: attempt to advance driver index\n",
-				__func__);
+		q->buf->producer_index = prod;
 		break;
 	}
 }
@@ -219,30 +201,24 @@ static inline void queue_advance_consumer(struct rxe_queue *q,
 
 	switch (type) {
 	case QUEUE_TYPE_FROM_CLIENT:
-		/* used by rxe which owns the index */
-		cons = (q->index + 1) & q->index_mask;
+		cons = q->index;
+		cons = (cons + 1) & q->index_mask;
 		q->index = cons;
-		/* release so client can read it safely */
+		/* protect user index */
 		smp_store_release(&q->buf->consumer_index, cons);
 		break;
 	case QUEUE_TYPE_TO_CLIENT:
-		/* used by rxe, client owns the index */
-		if (WARN_ON(1))
-			pr_warn("%s: attempt to advance client index\n",
-				__func__);
+		pr_warn("%s: attempt to advance client index\n",
+			__func__);
 		break;
-	case QUEUE_TYPE_FROM_ULP:
-		/* used by ulp, rxe owns the index */
-		if (WARN_ON(1))
-			pr_warn("%s: attempt to advance driver index\n",
-				__func__);
-		break;
-	case QUEUE_TYPE_TO_ULP:
-		/* used by ulp which owns the index */
+	case QUEUE_TYPE_FROM_DRIVER:
 		cons = q->buf->consumer_index;
 		cons = (cons + 1) & q->index_mask;
-		/* release so rxe can read it safely */
-		smp_store_release(&q->buf->consumer_index, cons);
+		q->buf->consumer_index = cons;
+		break;
+	case QUEUE_TYPE_TO_DRIVER:
+		pr_warn("%s: attempt to advance driver index\n",
+			__func__);
 		break;
 	}
 }

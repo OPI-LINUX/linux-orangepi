@@ -1842,7 +1842,8 @@ void serial8250_tx_chars(struct uart_8250_port *up)
 			 */
 			serial_in(up, UART_SCR);
 		}
-		uart_xmit_advance(port, 1);
+		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
+		port->icount.tx++;
 		if (uart_circ_empty(xmit))
 			break;
 		if ((up->capabilities & UART_CAP_HFIFO) &&
@@ -1896,17 +1897,6 @@ EXPORT_SYMBOL_GPL(serial8250_modem_status);
 static bool handle_rx_dma(struct uart_8250_port *up, unsigned int iir)
 {
 	switch (iir & 0x3f) {
-	case UART_IIR_THRI:
-		/*
-		 * Postpone DMA or not decision to IIR_RDI or IIR_RX_TIMEOUT
-		 * because it's impossible to do an informed decision about
-		 * that with IIR_THRI.
-		 *
-		 * This also fixes one known DMA Rx corruption issue where
-		 * DR is asserted but DMA Rx only gets a corrupted zero byte
-		 * (too early DR?).
-		 */
-		return false;
 	case UART_IIR_RDI:
 		if (!up->dma->rx_running)
 			break;

@@ -271,7 +271,7 @@ static int ulpi_regs_show(struct seq_file *seq, void *data)
 }
 DEFINE_SHOW_ATTRIBUTE(ulpi_regs);
 
-static struct dentry *ulpi_root;
+#define ULPI_ROOT debugfs_lookup(KBUILD_MODNAME, NULL)
 
 static int ulpi_register(struct device *dev, struct ulpi *ulpi)
 {
@@ -301,7 +301,7 @@ static int ulpi_register(struct device *dev, struct ulpi *ulpi)
 		return ret;
 	}
 
-	root = debugfs_create_dir(dev_name(dev), ulpi_root);
+	root = debugfs_create_dir(dev_name(dev), ULPI_ROOT);
 	debugfs_create_file("regs", 0444, root, ulpi, &ulpi_regs_fops);
 
 	dev_dbg(&ulpi->dev, "registered ULPI PHY: vendor %04x, product %04x\n",
@@ -349,7 +349,8 @@ EXPORT_SYMBOL_GPL(ulpi_register_interface);
  */
 void ulpi_unregister_interface(struct ulpi *ulpi)
 {
-	debugfs_lookup_and_remove(dev_name(&ulpi->dev), ulpi_root);
+	debugfs_remove_recursive(debugfs_lookup(dev_name(&ulpi->dev),
+						ULPI_ROOT));
 	device_unregister(&ulpi->dev);
 }
 EXPORT_SYMBOL_GPL(ulpi_unregister_interface);
@@ -359,11 +360,12 @@ EXPORT_SYMBOL_GPL(ulpi_unregister_interface);
 static int __init ulpi_init(void)
 {
 	int ret;
+	struct dentry *root;
 
-	ulpi_root = debugfs_create_dir(KBUILD_MODNAME, NULL);
+	root = debugfs_create_dir(KBUILD_MODNAME, NULL);
 	ret = bus_register(&ulpi_bus);
 	if (ret)
-		debugfs_remove(ulpi_root);
+		debugfs_remove(root);
 	return ret;
 }
 subsys_initcall(ulpi_init);
@@ -371,7 +373,7 @@ subsys_initcall(ulpi_init);
 static void __exit ulpi_exit(void)
 {
 	bus_unregister(&ulpi_bus);
-	debugfs_remove(ulpi_root);
+	debugfs_remove_recursive(ULPI_ROOT);
 }
 module_exit(ulpi_exit);
 

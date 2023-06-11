@@ -30,7 +30,8 @@ static bool
 length_mt6(const struct sk_buff *skb, struct xt_action_param *par)
 {
 	const struct xt_length_info *info = par->matchinfo;
-	u32 pktlen = skb->len;
+	const u_int16_t pktlen = ntohs(ipv6_hdr(skb)->payload_len) +
+				 sizeof(struct ipv6hdr);
 
 	return (pktlen >= info->min && pktlen <= info->max) ^ info->invert;
 }

@@ -31,7 +31,7 @@ struct dm_file {
 	 * poll will wait until the global event number is greater than
 	 * this value.
 	 */
-	volatile unsigned int global_event_nr;
+	volatile unsigned global_event_nr;
 };
 
 /*-----------------------------------------------------------------
@@ -413,7 +413,7 @@ static struct mapped_device *dm_hash_rename(struct dm_ioctl *param,
 	struct hash_cell *hc;
 	struct dm_table *table;
 	struct mapped_device *md;
-	unsigned int change_uuid = (param->flags & DM_UUID_FLAG) ? 1 : 0;
+	unsigned change_uuid = (param->flags & DM_UUID_FLAG) ? 1 : 0;
 	int srcu_idx;
 
 	/*
@@ -482,7 +482,7 @@ static struct mapped_device *dm_hash_rename(struct dm_ioctl *param,
 		dm_table_event(table);
 	dm_put_live_table(hc->md, srcu_idx);
 
-	if (!dm_kobject_uevent(hc->md, KOBJ_CHANGE, param->event_nr, false))
+	if (!dm_kobject_uevent(hc->md, KOBJ_CHANGE, param->event_nr))
 		param->flags |= DM_UEVENT_GENERATED_FLAG;
 
 	md = hc->md;
@@ -681,7 +681,7 @@ static void list_version_get_info(struct target_type *tt, void *param)
     strcpy(info->vers->name, tt->name);
 
     info->old_vers = info->vers;
-    info->vers = align_ptr((void *)(info->vers + 1) + strlen(tt->name) + 1);
+    info->vers = align_ptr(((void *) ++info->vers) + strlen(tt->name) + 1);
 }
 
 static int __list_versions(struct dm_ioctl *param, size_t param_size, const char *name)
@@ -995,7 +995,7 @@ static int dev_remove(struct file *filp, struct dm_ioctl *param, size_t param_si
 
 	dm_ima_measure_on_device_remove(md, false);
 
-	if (!dm_kobject_uevent(md, KOBJ_REMOVE, param->event_nr, false))
+	if (!dm_kobject_uevent(md, KOBJ_REMOVE, param->event_nr))
 		param->flags |= DM_UEVENT_GENERATED_FLAG;
 
 	dm_put(md);
@@ -1021,7 +1021,7 @@ static int dev_rename(struct file *filp, struct dm_ioctl *param, size_t param_si
 	int r;
 	char *new_data = (char *) param + param->data_start;
 	struct mapped_device *md;
-	unsigned int change_uuid = (param->flags & DM_UUID_FLAG) ? 1 : 0;
+	unsigned change_uuid = (param->flags & DM_UUID_FLAG) ? 1 : 0;
 
 	if (new_data < param->data ||
 	    invalid_str(new_data, (void *) param + param_size) || !*new_data ||
@@ -1096,7 +1096,7 @@ out:
 static int do_suspend(struct dm_ioctl *param)
 {
 	int r = 0;
-	unsigned int suspend_flags = DM_SUSPEND_LOCKFS_FLAG;
+	unsigned suspend_flags = DM_SUSPEND_LOCKFS_FLAG;
 	struct mapped_device *md;
 
 	md = find_device(param);
@@ -1125,11 +1125,10 @@ out:
 static int do_resume(struct dm_ioctl *param)
 {
 	int r = 0;
-	unsigned int suspend_flags = DM_SUSPEND_LOCKFS_FLAG;
+	unsigned suspend_flags = DM_SUSPEND_LOCKFS_FLAG;
 	struct hash_cell *hc;
 	struct mapped_device *md;
 	struct dm_table *new_map, *old_map = NULL;
-	bool need_resize_uevent = false;
 
 	down_write(&_hash_lock);
 
@@ -1150,8 +1149,6 @@ static int do_resume(struct dm_ioctl *param)
 
 	/* Do we need to load a new map ? */
 	if (new_map) {
-		sector_t old_size, new_size;
-
 		/* Suspend if it isn't already suspended */
 		if (param->flags & DM_SKIP_LOCKFS_FLAG)
 			suspend_flags &= ~DM_SUSPEND_LOCKFS_FLAG;
@@ -1160,7 +1157,6 @@ static int do_resume(struct dm_ioctl *param)
 		if (!dm_suspended_md(md))
 			dm_suspend(md, suspend_flags);
 
-		old_size = dm_get_size(md);
 		old_map = dm_swap_table(md, new_map);
 		if (IS_ERR(old_map)) {
 			dm_sync_table(md);
@@ -1168,9 +1164,6 @@ static int do_resume(struct dm_ioctl *param)
 			dm_put(md);
 			return PTR_ERR(old_map);
 		}
-		new_size = dm_get_size(md);
-		if (old_size && new_size && old_size != new_size)
-			need_resize_uevent = true;
 
 		if (dm_table_get_mode(new_map) & FMODE_WRITE)
 			set_disk_ro(dm_disk(md), 0);
@@ -1183,7 +1176,7 @@ static int do_resume(struct dm_ioctl *param)
 		if (!r) {
 			dm_ima_measure_on_device_resume(md, new_map ? true : false);
 
-			if (!dm_kobject_uevent(md, KOBJ_CHANGE, param->event_nr, need_resize_uevent))
+			if (!dm_kobject_uevent(md, KOBJ_CHANGE, param->event_nr))
 				param->flags |= DM_UEVENT_GENERATED_FLAG;
 		}
 	}
@@ -1243,7 +1236,7 @@ static void retrieve_status(struct dm_table *table,
 	char *outbuf, *outptr;
 	status_type_t type;
 	size_t remaining, len, used = 0;
-	unsigned int status_flags = 0;
+	unsigned status_flags = 0;
 
 	outptr = outbuf = get_result_buffer(param, param_size, &len);
 
@@ -1648,8 +1641,8 @@ static int table_status(struct file *filp, struct dm_ioctl *param, size_t param_
  * Returns a number <= 1 if message was processed by device mapper.
  * Returns 2 if message should be delivered to the target.
  */
-static int message_for_md(struct mapped_device *md, unsigned int argc, char **argv,
-			  char *result, unsigned int maxlen)
+static int message_for_md(struct mapped_device *md, unsigned argc, char **argv,
+			  char *result, unsigned maxlen)
 {
 	int r;
 
@@ -1795,8 +1788,8 @@ static ioctl_fn lookup_ioctl(unsigned int cmd, int *ioctl_flags)
 
 		{DM_TARGET_MSG_CMD, 0, target_message},
 		{DM_DEV_SET_GEOMETRY_CMD, 0, dev_set_geometry},
-		{DM_DEV_ARM_POLL_CMD, IOCTL_FLAGS_NO_PARAMS, dev_arm_poll},
-		{DM_GET_TARGET_VERSION_CMD, 0, get_target_version},
+		{DM_DEV_ARM_POLL, IOCTL_FLAGS_NO_PARAMS, dev_arm_poll},
+		{DM_GET_TARGET_VERSION, 0, get_target_version},
 	};
 
 	if (unlikely(cmd >= ARRAY_SIZE(_ioctls)))
@@ -1859,7 +1852,7 @@ static int copy_params(struct dm_ioctl __user *user, struct dm_ioctl *param_kern
 	struct dm_ioctl *dmi;
 	int secure_data;
 	const size_t minimum_data_size = offsetof(struct dm_ioctl, data);
-	unsigned int noio_flag;
+	unsigned noio_flag;
 
 	if (copy_from_user(param_kernel, user, minimum_data_size))
 		return -EFAULT;

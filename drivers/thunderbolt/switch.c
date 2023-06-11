@@ -8,13 +8,12 @@
 
 #include <linux/delay.h>
 #include <linux/idr.h>
-#include <linux/module.h>
 #include <linux/nvmem-provider.h>
 #include <linux/pm_runtime.h>
 #include <linux/sched/signal.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
-#include <linux/string_helpers.h>
+#include <linux/module.h>
 
 #include "tb.h"
 
@@ -645,7 +644,7 @@ static int __tb_port_enable(struct tb_port *port, bool enable)
 	if (ret)
 		return ret;
 
-	tb_port_dbg(port, "lane %s\n", str_enabled_disabled(enable));
+	tb_port_dbg(port, "lane %sabled\n", enable ? "en" : "dis");
 	return 0;
 }
 
@@ -2960,6 +2959,8 @@ int tb_switch_add(struct tb_switch *sw)
 			dev_warn(&sw->dev, "reading DROM failed: %d\n", ret);
 		tb_sw_dbg(sw, "uid: %#llx\n", sw->uid);
 
+		tb_check_quirks(sw);
+
 		ret = tb_switch_set_uuid(sw);
 		if (ret) {
 			dev_err(&sw->dev, "failed to set UUID\n");
@@ -2977,8 +2978,6 @@ int tb_switch_add(struct tb_switch *sw)
 				return ret;
 			}
 		}
-
-		tb_check_quirks(sw);
 
 		tb_switch_default_link_ports(sw);
 

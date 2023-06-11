@@ -666,9 +666,8 @@ static int asix_resume(struct usb_interface *intf)
 static int ax88772_init_mdio(struct usbnet *dev)
 {
 	struct asix_common_private *priv = dev->driver_priv;
-	int ret;
 
-	priv->mdio = mdiobus_alloc();
+	priv->mdio = devm_mdiobus_alloc(&dev->udev->dev);
 	if (!priv->mdio)
 		return -ENOMEM;
 
@@ -680,20 +679,7 @@ static int ax88772_init_mdio(struct usbnet *dev)
 	snprintf(priv->mdio->id, MII_BUS_ID_SIZE, "usb-%03d:%03d",
 		 dev->udev->bus->busnum, dev->udev->devnum);
 
-	ret = mdiobus_register(priv->mdio);
-	if (ret) {
-		netdev_err(dev->net, "Could not register MDIO bus (err %d)\n", ret);
-		mdiobus_free(priv->mdio);
-		priv->mdio = NULL;
-	}
-
-	return ret;
-}
-
-static void ax88772_mdio_unregister(struct asix_common_private *priv)
-{
-	mdiobus_unregister(priv->mdio);
-	mdiobus_free(priv->mdio);
+	return devm_mdiobus_register(&dev->udev->dev, priv->mdio);
 }
 
 static int ax88772_init_phy(struct usbnet *dev)
@@ -714,7 +700,7 @@ static int ax88772_init_phy(struct usbnet *dev)
 	}
 
 	phy_suspend(priv->phydev);
-	priv->phydev->mac_managed_pm = true;
+	priv->phydev->mac_managed_pm = 1;
 
 	phy_attached_info(priv->phydev);
 
@@ -734,7 +720,7 @@ static int ax88772_init_phy(struct usbnet *dev)
 		return -ENODEV;
 	}
 
-	priv->phydev_int->mac_managed_pm = true;
+	priv->phydev_int->mac_managed_pm = 1;
 	phy_suspend(priv->phydev_int);
 
 	return 0;
@@ -787,6 +773,7 @@ static void ax88772_mac_link_up(struct phylink_config *config,
 }
 
 static const struct phylink_mac_ops ax88772_phylink_mac_ops = {
+	.validate = phylink_generic_validate,
 	.mac_config = ax88772_mac_config,
 	.mac_link_down = ax88772_mac_link_down,
 	.mac_link_up = ax88772_mac_link_up,
@@ -910,23 +897,16 @@ static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
 
 	ret = ax88772_init_mdio(dev);
 	if (ret)
-		goto mdio_err;
+		return ret;
 
 	ret = ax88772_phylink_setup(dev);
 	if (ret)
-		goto phylink_err;
+		return ret;
 
 	ret = ax88772_init_phy(dev);
 	if (ret)
-		goto initphy_err;
+		phylink_destroy(priv->phylink);
 
-	return 0;
-
-initphy_err:
-	phylink_destroy(priv->phylink);
-phylink_err:
-	ax88772_mdio_unregister(priv);
-mdio_err:
 	return ret;
 }
 
@@ -947,7 +927,6 @@ static void ax88772_unbind(struct usbnet *dev, struct usb_interface *intf)
 	phylink_disconnect_phy(priv->phylink);
 	rtnl_unlock();
 	phylink_destroy(priv->phylink);
-	ax88772_mdio_unregister(priv);
 	asix_rx_fixup_common_free(dev->driver_priv);
 }
 
@@ -1372,20 +1351,6 @@ static const struct driver_info ax88772b_info = {
 	.data = FLAG_EEPROM_MAC,
 };
 
-static const struct driver_info lxausb_t1l_info = {
-	.description = "Linux Automation GmbH USB 10Base-T1L",
-	.bind = ax88772_bind,
-	.unbind = ax88772_unbind,
-	.status = asix_status,
-	.reset = ax88772_reset,
-	.stop = ax88772_stop,
-	.flags = FLAG_ETHER | FLAG_FRAMING_AX | FLAG_LINK_INTR |
-		 FLAG_MULTI_PACKET,
-	.rx_fixup = asix_rx_fixup_common,
-	.tx_fixup = asix_tx_fixup,
-	.data = FLAG_EEPROM_MAC,
-};
-
 static const struct driver_info ax88178_info = {
 	.description = "ASIX AX88178 USB 2.0 Ethernet",
 	.bind = ax88178_bind,
@@ -1574,10 +1539,6 @@ static const struct usb_device_id	products [] = {
 	 */
 	USB_DEVICE(0x066b, 0x20f9),
 	.driver_info = (unsigned long) &hg20f9_info,
-}, {
-	// Linux Automation GmbH USB 10Base-T1L
-	USB_DEVICE(0x33f7, 0x0004),
-	.driver_info = (unsigned long) &lxausb_t1l_info,
 },
 	{ },		// END
 };

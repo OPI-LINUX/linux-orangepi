@@ -197,10 +197,8 @@ static int __init applicom_init(void)
 		if (!pci_match_id(applicom_pci_tbl, dev))
 			continue;
 		
-		if (pci_enable_device(dev)) {
-			pci_dev_put(dev);
+		if (pci_enable_device(dev))
 			return -EIO;
-		}
 
 		RamIO = ioremap(pci_resource_start(dev, 0), LEN_RAM_IO);
 
@@ -209,7 +207,6 @@ static int __init applicom_init(void)
 				"space at 0x%llx\n",
 				(unsigned long long)pci_resource_start(dev, 0));
 			pci_disable_device(dev);
-			pci_dev_put(dev);
 			return -EIO;
 		}
 

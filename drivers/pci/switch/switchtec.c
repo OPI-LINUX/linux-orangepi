@@ -606,20 +606,21 @@ static ssize_t switchtec_dev_read(struct file *filp, char __user *data,
 	rc = copy_to_user(data, &stuser->return_code,
 			  sizeof(stuser->return_code));
 	if (rc) {
-		mutex_unlock(&stdev->mrpc_mutex);
-		return -EFAULT;
+		rc = -EFAULT;
+		goto out;
 	}
 
 	data += sizeof(stuser->return_code);
 	rc = copy_to_user(data, &stuser->data,
 			  size - sizeof(stuser->return_code));
 	if (rc) {
-		mutex_unlock(&stdev->mrpc_mutex);
-		return -EFAULT;
+		rc = -EFAULT;
+		goto out;
 	}
 
 	stuser_set_state(stuser, MRPC_IDLE);
 
+out:
 	mutex_unlock(&stdev->mrpc_mutex);
 
 	if (stuser->status == SWITCHTEC_MRPC_STATUS_DONE ||

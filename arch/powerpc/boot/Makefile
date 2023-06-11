@@ -39,19 +39,13 @@ BOOTCFLAGS    := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		 $(LINUXINCLUDE)
 
 ifdef CONFIG_PPC64_BOOT_WRAPPER
-BOOTCFLAGS	+= -m64
-else
-BOOTCFLAGS	+= -m32
-endif
-
-ifdef CONFIG_TARGET_CPU_BOOL
-BOOTCFLAGS	+= -mcpu=$(CONFIG_TARGET_CPU)
-else ifdef CONFIG_PPC64_BOOT_WRAPPER
 ifdef CONFIG_CPU_LITTLE_ENDIAN
-BOOTCFLAGS	+= -mcpu=powerpc64le
+BOOTCFLAGS	+= -m64 -mcpu=powerpc64le
 else
-BOOTCFLAGS	+= -mcpu=powerpc64
+BOOTCFLAGS	+= -m64 -mcpu=powerpc64
 endif
+else
+BOOTCFLAGS	+= -m32 -mcpu=powerpc
 endif
 
 BOOTCFLAGS	+= -isystem $(shell $(BOOTCC) -print-file-name=include)

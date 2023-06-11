@@ -45,45 +45,52 @@ static int cedrus_try_ctrl(struct v4l2_ctrl *ctrl)
 	} else if (ctrl->id == V4L2_CID_STATELESS_HEVC_SPS) {
 		const struct v4l2_ctrl_hevc_sps *sps = ctrl->p_new.p_hevc_sps;
 		struct cedrus_ctx *ctx = container_of(ctrl->handler, struct cedrus_ctx, hdl);
-		unsigned int bit_depth, max_depth;
-		struct vb2_queue *vq;
 
 		if (sps->chroma_format_idc != 1)
 			/* Only 4:2:0 is supported */
 			return -EINVAL;
 
-		bit_depth = max(sps->bit_depth_luma_minus8,
-				sps->bit_depth_chroma_minus8) + 8;
-
-		if (cedrus_is_capable(ctx, CEDRUS_CAPABILITY_H265_10_DEC))
-			max_depth = 10;
-		else
-			max_depth = 8;
-
-		if (bit_depth > max_depth)
+		if (sps->bit_depth_luma_minus8 != sps->bit_depth_chroma_minus8)
+			/* Luma and chroma bit depth mismatch */
 			return -EINVAL;
 
-		vq = v4l2_m2m_get_vq(ctx->fh.m2m_ctx,
-				     V4L2_BUF_TYPE_VIDEO_CAPTURE);
-
-		/*
-		 * Bit depth can't be higher than currently set once
-		 * buffers are allocated.
-		 */
-		if (vb2_is_busy(vq)) {
-			if (ctx->bit_depth < bit_depth)
+		if (ctx->dev->capabilities & CEDRUS_CAPABILITY_H265_10_DEC) {
+			if (sps->bit_depth_luma_minus8 != 0 && sps->bit_depth_luma_minus8 != 2)
+				/* Only 8-bit and 10-bit are supported */
 				return -EINVAL;
 		} else {
-			ctx->bit_depth = bit_depth;
-			cedrus_reset_cap_format(ctx);
+			if (sps->bit_depth_luma_minus8 != 0)
+				/* Only 8-bit is supported */
+				return -EINVAL;
 		}
 	}
 
 	return 0;
 }
 
+static int cedrus_s_ctrl(struct v4l2_ctrl *ctrl)
+{
+	struct cedrus_ctx *ctx = container_of(ctrl->handler,
+					      struct cedrus_ctx, hdl);
+	struct vb2_queue *vq = v4l2_m2m_get_vq(ctx->fh.m2m_ctx,
+					       V4L2_BUF_TYPE_VIDEO_CAPTURE);
+
+	if (ctrl->id == V4L2_CID_STATELESS_HEVC_SPS) {
+		const struct v4l2_ctrl_hevc_sps *sps = ctrl->p_new.p_hevc_sps;
+
+		ctx->bit_depth = max(sps->bit_depth_luma_minus8,
+				     sps->bit_depth_chroma_minus8) + 8;
+	}
+
+	if (!vb2_is_busy(vq) && !vb2_is_streaming(vq))
+		cedrus_reset_cap_format(ctx);
+
+	return 0;
+}
+
 static const struct v4l2_ctrl_ops cedrus_ctrl_ops = {
 	.try_ctrl = cedrus_try_ctrl,
+	.s_ctrl = cedrus_s_ctrl,
 };
 
 static const struct cedrus_control cedrus_controls[] = {
@@ -284,7 +291,7 @@ static int cedrus_init_ctrls(struct cedrus_dev *dev, struct cedrus_ctx *ctx)
 	struct v4l2_ctrl_handler *hdl = &ctx->hdl;
 	struct v4l2_ctrl *ctrl;
 	unsigned int ctrl_size;
-	unsigned int i, j;
+	unsigned int i;
 
 	v4l2_ctrl_handler_init(hdl, CEDRUS_CONTROLS_COUNT);
 	if (hdl->error) {
@@ -300,7 +307,6 @@ static int cedrus_init_ctrls(struct cedrus_dev *dev, struct cedrus_ctx *ctx)
 	if (!ctx->ctrls)
 		return -ENOMEM;
 
-	j = 0;
 	for (i = 0; i < CEDRUS_CONTROLS_COUNT; i++) {
 		if (!cedrus_is_capable(ctx, cedrus_controls[i].capabilities))
 			continue;
@@ -319,7 +325,7 @@ static int cedrus_init_ctrls(struct cedrus_dev *dev, struct cedrus_ctx *ctx)
 			return hdl->error;
 		}
 
-		ctx->ctrls[j++] = ctrl;
+		ctx->ctrls[i] = ctrl;
 	}
 
 	ctx->fh.ctrl_handler = hdl;
@@ -380,7 +386,6 @@ static int cedrus_open(struct file *file)
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
 	file->private_data = &ctx->fh;
 	ctx->dev = dev;
-	ctx->bit_depth = 8;
 
 	ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->m2m_dev, ctx,
 					    &cedrus_queue_init);

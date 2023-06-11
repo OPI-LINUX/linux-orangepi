@@ -3389,12 +3389,7 @@ int snd_hda_add_new_ctls(struct hda_codec *codec,
 			kctl = snd_ctl_new1(knew, codec);
 			if (!kctl)
 				return -ENOMEM;
-			/* Do not use the id.device field for MIXER elements.
-			 * This field is for real device numbers (like PCM) but codecs
-			 * are hidden components from the user space view (unrelated
-			 * to the mixer element identification).
-			 */
-			if (addr > 0 && codec->ctl_dev_id)
+			if (addr > 0)
 				kctl->id.device = addr;
 			if (idx > 0)
 				kctl->id.index = idx;
@@ -3405,11 +3400,9 @@ int snd_hda_add_new_ctls(struct hda_codec *codec,
 			 * the codec addr; if it still fails (or it's the
 			 * primary codec), then try another control index
 			 */
-			if (!addr && codec->core.addr) {
+			if (!addr && codec->core.addr)
 				addr = codec->core.addr;
-				if (!codec->ctl_dev_id)
-					idx += 10 * addr;
-			} else if (!idx && !knew->index) {
+			else if (!idx && !knew->index) {
 				idx = find_empty_mixer_ctl_idx(codec,
 							       knew->name, 0);
 				if (idx <= 0)

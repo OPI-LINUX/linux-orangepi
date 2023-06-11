@@ -4627,6 +4627,12 @@ static int set_mgmt_mesh_func(struct sock *sk, struct hci_dev *hdev,
 				       MGMT_OP_SET_EXP_FEATURE,
 				       MGMT_STATUS_INVALID_INDEX);
 
+	/* Changes can only be made when controller is powered down */
+	if (hdev_is_powered(hdev))
+		return mgmt_cmd_status(sk, hdev->id,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_REJECTED);
+
 	/* Parameters are limited to a single octet */
 	if (data_len != MGMT_SET_EXP_FEATURE_SIZE + 1)
 		return mgmt_cmd_status(sk, hdev->id,
@@ -7367,8 +7373,9 @@ static int get_conn_info(struct sock *sk, struct hci_dev *hdev, void *data,
 	/* To avoid client trying to guess when to poll again for information we
 	 * calculate conn info age as random value between min/max set in hdev.
 	 */
-	conn_info_age = get_random_u32_inclusive(hdev->conn_info_min_age,
-						 hdev->conn_info_max_age - 1);
+	conn_info_age = hdev->conn_info_min_age +
+			prandom_u32_max(hdev->conn_info_max_age -
+					hdev->conn_info_min_age);
 
 	/* Query controller to refresh cached values if they are too old or were
 	 * never read.
@@ -9345,8 +9352,7 @@ static const struct hci_mgmt_handler mgmt_handlers[] = {
 	{ add_ext_adv_data,        MGMT_ADD_EXT_ADV_DATA_SIZE,
 						HCI_MGMT_VAR_LEN },
 	{ add_adv_patterns_monitor_rssi,
-				   MGMT_ADD_ADV_PATTERNS_MONITOR_RSSI_SIZE,
-						HCI_MGMT_VAR_LEN },
+				   MGMT_ADD_ADV_PATTERNS_MONITOR_RSSI_SIZE },
 	{ set_mesh,                MGMT_SET_MESH_RECEIVER_SIZE,
 						HCI_MGMT_VAR_LEN },
 	{ mesh_features,           MGMT_MESH_READ_FEATURES_SIZE },

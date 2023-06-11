@@ -235,9 +235,6 @@ static void get_modedb(struct fb_videomode **modedb, unsigned int *size)
 
 static int lxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
-	if (!var->pixclock)
-		return -EINVAL;
-
 	if (var->xres > 1920 || var->yres > 1440)
 		return -EINVAL;
 
@@ -650,12 +647,7 @@ static int __init lxfb_init(void)
 {
 #ifndef MODULE
 	char *option = NULL;
-#endif
 
-	if (fb_modesetting_disabled("lxfb"))
-		return -ENODEV;
-
-#ifndef MODULE
 	if (fb_get_options("lxfb", &option))
 		return -ENODEV;
 

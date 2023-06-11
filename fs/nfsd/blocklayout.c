@@ -12,7 +12,6 @@
 #include "blocklayoutxdr.h"
 #include "pnfs.h"
 #include "filecache.h"
-#include "vfs.h"
 
 #define NFSDDBG_FACILITY	NFSDDBG_PNFS
 
@@ -297,7 +296,6 @@ nfsd4_block_get_device_info_scsi(struct super_block *sb,
 
 out_free_dev:
 	kfree(dev);
-	gdp->gd_device = NULL;
 	return ret;
 }
 

@@ -24,7 +24,6 @@
 #include <linux/export.h>
 #include <linux/module.h>
 #include <linux/console.h>
-#include <linux/kstrtox.h>
 #include <linux/kthread.h>
 #include <linux/workqueue.h>
 #include <linux/kfifo.h>
@@ -81,9 +80,6 @@
 #define QUEUE_SIZE		16
 #define WRITE_BUF_SIZE		8192		/* TX only */
 #define GS_CONSOLE_BUF_SIZE	8192
-
-/* Prevents race conditions while accessing gser->ioport */
-static DEFINE_SPINLOCK(serial_port_lock);
 
 /* console info */
 struct gs_console {
@@ -1074,7 +1070,7 @@ ssize_t gserial_set_console(unsigned char port_num, const char *page, size_t cou
 	bool enable;
 	int ret;
 
-	ret = kstrtobool(page, &enable);
+	ret = strtobool(page, &enable);
 	if (ret)
 		return ret;
 
@@ -1378,10 +1374,8 @@ void gserial_disconnect(struct gserial *gser)
 	if (!port)
 		return;
 
-	spin_lock_irqsave(&serial_port_lock, flags);
-
 	/* tell the TTY glue not to do I/O here any more */
-	spin_lock(&port->port_lock);
+	spin_lock_irqsave(&port->port_lock, flags);
 
 	gs_console_disconnect(port);
 
@@ -1396,8 +1390,7 @@ void gserial_disconnect(struct gserial *gser)
 			tty_hangup(port->port.tty);
 	}
 	port->suspended = false;
-	spin_unlock(&port->port_lock);
-	spin_unlock_irqrestore(&serial_port_lock, flags);
+	spin_unlock_irqrestore(&port->port_lock, flags);
 
 	/* disable endpoints, aborting down any active I/O */
 	usb_ep_disable(gser->out);
@@ -1431,19 +1424,10 @@ EXPORT_SYMBOL_GPL(gserial_suspend);
 
 void gserial_resume(struct gserial *gser)
 {
-	struct gs_port *port;
+	struct gs_port *port = gser->ioport;
 	unsigned long	flags;
 
-	spin_lock_irqsave(&serial_port_lock, flags);
-	port = gser->ioport;
-
-	if (!port) {
-		spin_unlock_irqrestore(&serial_port_lock, flags);
-		return;
-	}
-
-	spin_lock(&port->port_lock);
-	spin_unlock(&serial_port_lock);
+	spin_lock_irqsave(&port->port_lock, flags);
 	port->suspended = false;
 	if (!port->start_delayed) {
 		spin_unlock_irqrestore(&port->port_lock, flags);

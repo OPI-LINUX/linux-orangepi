@@ -67,7 +67,7 @@ static acpi_status acpi_match_rc(acpi_handle handle, u32 lvl, void *context,
 	unsigned long long uid;
 	acpi_status status;
 
-	status = acpi_evaluate_integer(handle, METHOD_NAME__UID, NULL, &uid);
+	status = acpi_evaluate_integer(handle, "_UID", NULL, &uid);
 	if (ACPI_FAILURE(status) || uid != *segment)
 		return AE_CTRL_DEPTH;
 
@@ -976,41 +976,24 @@ bool acpi_pci_power_manageable(struct pci_dev *dev)
 bool acpi_pci_bridge_d3(struct pci_dev *dev)
 {
 	struct pci_dev *rpdev;
-	struct acpi_device *adev, *rpadev;
+	struct acpi_device *adev;
+	acpi_status status;
+	unsigned long long state;
 	const union acpi_object *obj;
 
 	if (acpi_pci_disabled || !dev->is_hotplug_bridge)
 		return false;
 
-	adev = ACPI_COMPANION(&dev->dev);
-	if (adev) {
-		/*
-		 * If the bridge has _S0W, whether or not it can go into D3
-		 * depends on what is returned by that object.  In particular,
-		 * if the power state returned by _S0W is D2 or shallower,
-		 * entering D3 should not be allowed.
-		 */
-		if (acpi_dev_power_state_for_wake(adev) <= ACPI_STATE_D2)
-			return false;
-
-		/*
-		 * Otherwise, assume that the bridge can enter D3 so long as it
-		 * is power-manageable via ACPI.
-		 */
-		if (acpi_device_power_manageable(adev))
-			return true;
-	}
+	/* Assume D3 support if the bridge is power-manageable by ACPI. */
+	if (acpi_pci_power_manageable(dev))
+		return true;
 
 	rpdev = pcie_find_root_port(dev);
 	if (!rpdev)
 		return false;
 
-	if (rpdev == dev)
-		rpadev = adev;
-	else
-		rpadev = ACPI_COMPANION(&rpdev->dev);
-
-	if (!rpadev)
+	adev = ACPI_COMPANION(&rpdev->dev);
+	if (!adev)
 		return false;
 
 	/*
@@ -1018,15 +1001,15 @@ bool acpi_pci_bridge_d3(struct pci_dev *dev)
 	 * doesn't supply a wakeup GPE via _PRW, it cannot signal hotplug
 	 * events from low-power states including D3hot and D3cold.
 	 */
-	if (!rpadev->wakeup.flags.valid)
+	if (!adev->wakeup.flags.valid)
 		return false;
 
 	/*
-	 * In the bridge-below-a-Root-Port case, evaluate _S0W for the Root Port
-	 * to verify whether or not it can signal wakeup from D3.
+	 * If the Root Port cannot wake itself from D3hot or D3cold, we
+	 * can't use D3.
 	 */
-	if (rpadev != adev &&
-	    acpi_dev_power_state_for_wake(rpadev) <= ACPI_STATE_D2)
+	status = acpi_evaluate_integer(adev->handle, "_S0W", NULL, &state);
+	if (ACPI_SUCCESS(status) && state < ACPI_STATE_D3_HOT)
 		return false;
 
 	/*
@@ -1035,7 +1018,7 @@ bool acpi_pci_bridge_d3(struct pci_dev *dev)
 	 * bridges *below* that Root Port can also signal hotplug events
 	 * while in D3.
 	 */
-	if (!acpi_dev_get_property(rpadev, "HotPlugSupportInD3",
+	if (!acpi_dev_get_property(adev, "HotPlugSupportInD3",
 				   ACPI_TYPE_INTEGER, &obj) &&
 	    obj->integer.value == 1)
 		return true;

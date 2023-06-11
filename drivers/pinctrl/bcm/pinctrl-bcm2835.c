@@ -363,6 +363,8 @@ static int bcm2835_of_gpio_ranges_fallback(struct gpio_chip *gc,
 {
 	struct pinctrl_dev *pctldev = of_pinctrl_get(np);
 
+	of_node_put(np);
+
 	if (!pctldev)
 		return 0;
 

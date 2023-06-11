@@ -814,17 +814,6 @@ static int netlink_release(struct socket *sock)
 	}
 
 	sock_prot_inuse_add(sock_net(sk), &netlink_proto, -1);
-
-	/* Because struct net might disappear soon, do not keep a pointer. */
-	if (!sk->sk_net_refcnt && sock_net(sk) != &init_net) {
-		__netns_tracker_free(sock_net(sk), &sk->ns_tracker, false);
-		/* Because of deferred_put_nlk_sk and use of work queue,
-		 * it is possible  netns will be freed before this socket.
-		 */
-		sock_net_set(sk, &init_net);
-		__netns_tracker_alloc(&init_net, &sk->ns_tracker,
-				      false, GFP_KERNEL);
-	}
 	call_rcu(&nlk->rcu, deferred_put_nlk_sk);
 	return 0;
 }
@@ -848,7 +837,7 @@ retry:
 		/* Bind collision, search negative portid values. */
 		if (rover == -4096)
 			/* rover will be in range [S32_MIN, -4097] */
-			rover = S32_MIN + get_random_u32_below(-4096 - S32_MIN);
+			rover = S32_MIN + prandom_u32_max(-4096 - S32_MIN);
 		else if (rover >= -4096)
 			rover = -4097;
 		portid = rover--;
@@ -1952,7 +1941,7 @@ static int netlink_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 	struct scm_cookie scm;
 	struct sock *sk = sock->sk;
 	struct netlink_sock *nlk = nlk_sk(sk);
-	size_t copied, max_recvmsg_len;
+	size_t copied;
 	struct sk_buff *skb, *data_skb;
 	int err, ret;
 
@@ -1985,10 +1974,9 @@ static int netlink_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 #endif
 
 	/* Record the max length of recvmsg() calls for future allocations */
-	max_recvmsg_len = max(READ_ONCE(nlk->max_recvmsg_len), len);
-	max_recvmsg_len = min_t(size_t, max_recvmsg_len,
-				SKB_WITH_OVERHEAD(32768));
-	WRITE_ONCE(nlk->max_recvmsg_len, max_recvmsg_len);
+	nlk->max_recvmsg_len = max(nlk->max_recvmsg_len, len);
+	nlk->max_recvmsg_len = min_t(size_t, nlk->max_recvmsg_len,
+				     SKB_WITH_OVERHEAD(32768));
 
 	copied = data_skb->len;
 	if (len < copied) {
@@ -2237,7 +2225,6 @@ static int netlink_dump(struct sock *sk)
 	struct netlink_ext_ack extack = {};
 	struct netlink_callback *cb;
 	struct sk_buff *skb = NULL;
-	size_t max_recvmsg_len;
 	struct module *module;
 	int err = -ENOBUFS;
 	int alloc_min_size;
@@ -2260,9 +2247,8 @@ static int netlink_dump(struct sock *sk)
 	cb = &nlk->cb;
 	alloc_min_size = max_t(int, cb->min_dump_alloc, NLMSG_GOODSIZE);
 
-	max_recvmsg_len = READ_ONCE(nlk->max_recvmsg_len);
-	if (alloc_min_size < max_recvmsg_len) {
-		alloc_size = max_recvmsg_len;
+	if (alloc_min_size < nlk->max_recvmsg_len) {
+		alloc_size = nlk->max_recvmsg_len;
 		skb = alloc_skb(alloc_size,
 				(GFP_KERNEL & ~__GFP_DIRECT_RECLAIM) |
 				__GFP_NOWARN | __GFP_NORETRY);
@@ -2512,24 +2498,19 @@ void netlink_ack(struct sk_buff *in_skb, struct nlmsghdr *nlh, int err,
 		flags |= NLM_F_ACK_TLVS;
 
 	skb = nlmsg_new(payload + tlvlen, GFP_KERNEL);
-	if (!skb)
-		goto err_skb;
+	if (!skb) {
+		NETLINK_CB(in_skb).sk->sk_err = ENOBUFS;
+		sk_error_report(NETLINK_CB(in_skb).sk);
+		return;
+	}
 
 	rep = nlmsg_put(skb, NETLINK_CB(in_skb).portid, nlh->nlmsg_seq,
-			NLMSG_ERROR, sizeof(*errmsg), flags);
-	if (!rep)
-		goto err_bad_put;
+			NLMSG_ERROR, payload, flags);
 	errmsg = nlmsg_data(rep);
 	errmsg->error = err;
-	errmsg->msg = *nlh;
-
-	if (!(flags & NLM_F_CAPPED)) {
-		if (!nlmsg_append(skb, nlmsg_len(nlh)))
-			goto err_bad_put;
-
-		memcpy(nlmsg_data(&errmsg->msg), nlmsg_data(nlh),
-		       nlmsg_len(nlh));
-	}
+	unsafe_memcpy(&errmsg->msg, nlh, payload > sizeof(*errmsg)
+					 ? nlh->nlmsg_len : sizeof(*nlh),
+		      /* Bounds checked by the skb layer. */);
 
 	if (tlvlen)
 		netlink_ack_tlv_fill(in_skb, skb, nlh, err, extack);
@@ -2537,14 +2518,6 @@ void netlink_ack(struct sk_buff *in_skb, struct nlmsghdr *nlh, int err,
 	nlmsg_end(skb, rep);
 
 	nlmsg_unicast(in_skb->sk, skb, NETLINK_CB(in_skb).portid);
-
-	return;
-
-err_bad_put:
-	nlmsg_free(skb);
-err_skb:
-	NETLINK_CB(in_skb).sk->sk_err = ENOBUFS;
-	sk_error_report(NETLINK_CB(in_skb).sk);
 }
 EXPORT_SYMBOL(netlink_ack);
 

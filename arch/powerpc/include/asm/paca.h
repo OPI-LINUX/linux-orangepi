@@ -295,6 +295,7 @@ extern void free_unused_pacas(void);
 
 #else /* CONFIG_PPC64 */
 
+static inline void allocate_paca_ptrs(void) { }
 static inline void allocate_paca(int cpu) { }
 static inline void free_unused_pacas(void) { }
 

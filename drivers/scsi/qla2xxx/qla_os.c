@@ -360,13 +360,6 @@ MODULE_PARM_DESC(ql2xnvme_queues,
 	"1 - Minimum number of queues supported\n"
 	"8 - Default value");
 
-int ql2xfc2target = 1;
-module_param(ql2xfc2target, int, 0444);
-MODULE_PARM_DESC(qla2xfc2target,
-		  "Enables FC2 Target support. "
-		  "0 - FC2 Target support is disabled. "
-		  "1 - FC2 Target support is enabled (default).");
-
 static struct scsi_transport_template *qla2xxx_transport_template = NULL;
 struct scsi_transport_template *qla2xxx_transport_vport_template = NULL;
 
@@ -1855,17 +1848,6 @@ __qla2x00_abort_all_cmds(struct qla_qpair *qp, int res)
 	for (cnt = 1; cnt < req->num_outstanding_cmds; cnt++) {
 		sp = req->outstanding_cmds[cnt];
 		if (sp) {
-			/*
-			 * perform lockless completion during driver unload
-			 */
-			if (qla2x00_chip_is_down(vha)) {
-				req->outstanding_cmds[cnt] = NULL;
-				spin_unlock_irqrestore(qp->qp_lock_ptr, flags);
-				sp->done(sp, res);
-				spin_lock_irqsave(qp->qp_lock_ptr, flags);
-				continue;
-			}
-
 			switch (sp->cmd_type) {
 			case TYPE_SRB:
 				qla2x00_abort_srb(qp, sp, res, &flags);
@@ -3302,6 +3284,7 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	    host->max_cmd_len, host->max_channel, host->max_lun,
 	    host->transportt, sht->vendor_id);
 
+	INIT_WORK(&base_vha->iocb_work, qla2x00_iocb_work_fn);
 	INIT_WORK(&ha->heartbeat_work, qla_heartbeat_work_fn);
 
 	/* Set up the irqs */
@@ -3607,7 +3590,6 @@ skip_dpc:
 probe_failed:
 	qla_enode_stop(base_vha);
 	qla_edb_stop(base_vha);
-	vfree(base_vha->scan.l);
 	if (base_vha->gnl.l) {
 		dma_free_coherent(&ha->pdev->dev, base_vha->gnl.size,
 				base_vha->gnl.l, base_vha->gnl.ldma);
@@ -4094,8 +4076,7 @@ qla2x00_mark_all_devices_lost(scsi_qla_host_t *vha)
 	    "Mark all dev lost\n");
 
 	list_for_each_entry(fcport, &vha->vp_fcports, list) {
-		if (ql2xfc2target &&
-		    fcport->loop_id != FC_NO_LOOP_ID &&
+		if (fcport->loop_id != FC_NO_LOOP_ID &&
 		    (fcport->flags & FCF_FCP2_DEVICE) &&
 		    fcport->port_type == FCT_TARGET &&
 		    !qla2x00_reset_active(vha)) {
@@ -7114,12 +7095,9 @@ qla2x00_do_dpc(void *data)
 			}
 		}
 loop_resync_check:
-		if (!qla2x00_reset_active(base_vha) &&
-		    test_and_clear_bit(LOOP_RESYNC_NEEDED,
+		if (test_and_clear_bit(LOOP_RESYNC_NEEDED,
 		    &base_vha->dpc_flags)) {
-			/*
-			 * Allow abort_isp to complete before moving on to scanning.
-			 */
+
 			ql_dbg(ql_dbg_dpc, base_vha, 0x400f,
 			    "Loop resync scheduled.\n");
 
@@ -7470,7 +7448,7 @@ qla2x00_timer(struct timer_list *t)
 
 		/* if the loop has been down for 4 minutes, reinit adapter */
 		if (atomic_dec_and_test(&vha->loop_down_timer) != 0) {
-			if (!(vha->device_flags & DFLG_NO_CABLE) && !vha->vp_idx) {
+			if (!(vha->device_flags & DFLG_NO_CABLE)) {
 				ql_log(ql_log_warn, vha, 0x6009,
 				    "Loop down - aborting ISP.\n");
 

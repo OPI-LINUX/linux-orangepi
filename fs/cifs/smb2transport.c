@@ -81,7 +81,6 @@ int smb2_get_sign_key(__u64 ses_id, struct TCP_Server_Info *server, u8 *key)
 	struct cifs_ses *ses = NULL;
 	int i;
 	int rc = 0;
-	bool is_binding = false;
 
 	spin_lock(&cifs_tcp_ses_lock);
 
@@ -98,12 +97,9 @@ int smb2_get_sign_key(__u64 ses_id, struct TCP_Server_Info *server, u8 *key)
 	goto out;
 
 found:
-	spin_lock(&ses->ses_lock);
 	spin_lock(&ses->chan_lock);
-
-	is_binding = (cifs_chan_needs_reconnect(ses, server) &&
-		      ses->ses_status == SES_GOOD);
-	if (is_binding) {
+	if (cifs_chan_needs_reconnect(ses, server) &&
+	    !CIFS_ALL_CHANS_NEED_RECONNECT(ses)) {
 		/*
 		 * If we are in the process of binding a new channel
 		 * to an existing session, use the master connection
@@ -111,7 +107,6 @@ found:
 		 */
 		memcpy(key, ses->smb3signingkey, SMB3_SIGN_KEY_SIZE);
 		spin_unlock(&ses->chan_lock);
-		spin_unlock(&ses->ses_lock);
 		goto out;
 	}
 
@@ -124,12 +119,10 @@ found:
 		if (chan->server == server) {
 			memcpy(key, chan->signkey, SMB3_SIGN_KEY_SIZE);
 			spin_unlock(&ses->chan_lock);
-			spin_unlock(&ses->ses_lock);
 			goto out;
 		}
 	}
 	spin_unlock(&ses->chan_lock);
-	spin_unlock(&ses->ses_lock);
 
 	cifs_dbg(VFS,
 		 "%s: Could not find channel signing key for session 0x%llx\n",
@@ -399,15 +392,11 @@ generate_smb3signingkey(struct cifs_ses *ses,
 	bool is_binding = false;
 	int chan_index = 0;
 
-	spin_lock(&ses->ses_lock);
 	spin_lock(&ses->chan_lock);
-	is_binding = (cifs_chan_needs_reconnect(ses, server) &&
-		      ses->ses_status == SES_GOOD);
-
+	is_binding = !CIFS_ALL_CHANS_NEED_RECONNECT(ses);
 	chan_index = cifs_ses_get_chan_index(ses, server);
 	/* TODO: introduce ref counting for channels when the can be freed */
 	spin_unlock(&ses->chan_lock);
-	spin_unlock(&ses->ses_lock);
 
 	/*
 	 * All channels use the same encryption/decryption keys but
@@ -436,7 +425,7 @@ generate_smb3signingkey(struct cifs_ses *ses,
 
 		/* safe to access primary channel, since it will never go away */
 		spin_lock(&ses->chan_lock);
-		memcpy(ses->chans[chan_index].signkey, ses->smb3signingkey,
+		memcpy(ses->chans[0].signkey, ses->smb3signingkey,
 		       SMB3_SIGN_KEY_SIZE);
 		spin_unlock(&ses->chan_lock);
 

@@ -34,14 +34,14 @@
 #define DEFAULT_SUB_JOB_SIZE_KB 512
 #define MAX_SUB_JOB_SIZE_KB     1024
 
-static unsigned int kcopyd_subjob_size_kb = DEFAULT_SUB_JOB_SIZE_KB;
+static unsigned kcopyd_subjob_size_kb = DEFAULT_SUB_JOB_SIZE_KB;
 
 module_param(kcopyd_subjob_size_kb, uint, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(kcopyd_subjob_size_kb, "Sub-job size for dm-kcopyd clients");
 
-static unsigned int dm_get_kcopyd_subjob_size(void)
+static unsigned dm_get_kcopyd_subjob_size(void)
 {
-	unsigned int sub_job_size_kb;
+	unsigned sub_job_size_kb;
 
 	sub_job_size_kb = __dm_get_module_param(&kcopyd_subjob_size_kb,
 						DEFAULT_SUB_JOB_SIZE_KB,
@@ -56,9 +56,9 @@ static unsigned int dm_get_kcopyd_subjob_size(void)
  *---------------------------------------------------------------*/
 struct dm_kcopyd_client {
 	struct page_list *pages;
-	unsigned int nr_reserved_pages;
-	unsigned int nr_free_pages;
-	unsigned int sub_job_size;
+	unsigned nr_reserved_pages;
+	unsigned nr_free_pages;
+	unsigned sub_job_size;
 
 	struct dm_io_client *io_client;
 
@@ -119,7 +119,7 @@ static DEFINE_SPINLOCK(throttle_spinlock);
 
 static void io_job_start(struct dm_kcopyd_throttle *t)
 {
-	unsigned int throttle, now, difference;
+	unsigned throttle, now, difference;
 	int slept = 0, skew;
 
 	if (unlikely(!t))
@@ -182,7 +182,7 @@ static void io_job_finish(struct dm_kcopyd_throttle *t)
 		goto skip_limit;
 
 	if (!t->num_io_jobs) {
-		unsigned int now, difference;
+		unsigned now, difference;
 
 		now = jiffies;
 		difference = now - t->last_jiffies;
@@ -303,9 +303,9 @@ static void drop_pages(struct page_list *pl)
 /*
  * Allocate and reserve nr_pages for the use of a specific client.
  */
-static int client_reserve_pages(struct dm_kcopyd_client *kc, unsigned int nr_pages)
+static int client_reserve_pages(struct dm_kcopyd_client *kc, unsigned nr_pages)
 {
-	unsigned int i;
+	unsigned i;
 	struct page_list *pl = NULL, *next;
 
 	for (i = 0; i < nr_pages; i++) {
@@ -341,7 +341,7 @@ static void client_free_pages(struct dm_kcopyd_client *kc)
 struct kcopyd_job {
 	struct dm_kcopyd_client *kc;
 	struct list_head list;
-	unsigned int flags;
+	unsigned flags;
 
 	/*
 	 * Error state of the job.
@@ -582,7 +582,7 @@ static int run_io_job(struct kcopyd_job *job)
 static int run_pages_job(struct kcopyd_job *job)
 {
 	int r;
-	unsigned int nr_pages = dm_div_up(job->dests[0].count, PAGE_SIZE >> 9);
+	unsigned nr_pages = dm_div_up(job->dests[0].count, PAGE_SIZE >> 9);
 
 	r = kcopyd_get_pages(job->kc, nr_pages, &job->pages);
 	if (!r) {
@@ -849,8 +849,8 @@ void dm_kcopyd_copy(struct dm_kcopyd_client *kc, struct dm_io_region *from,
 EXPORT_SYMBOL(dm_kcopyd_copy);
 
 void dm_kcopyd_zero(struct dm_kcopyd_client *kc,
-		    unsigned int num_dests, struct dm_io_region *dests,
-		    unsigned int flags, dm_kcopyd_notify_fn fn, void *context)
+		    unsigned num_dests, struct dm_io_region *dests,
+		    unsigned flags, dm_kcopyd_notify_fn fn, void *context)
 {
 	dm_kcopyd_copy(kc, NULL, num_dests, dests, flags, fn, context);
 }
@@ -906,7 +906,7 @@ int kcopyd_cancel(struct kcopyd_job *job, int block)
 struct dm_kcopyd_client *dm_kcopyd_client_create(struct dm_kcopyd_throttle *throttle)
 {
 	int r;
-	unsigned int reserve_pages;
+	unsigned reserve_pages;
 	struct dm_kcopyd_client *kc;
 
 	kc = kzalloc(sizeof(*kc), GFP_KERNEL);

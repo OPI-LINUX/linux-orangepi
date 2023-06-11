@@ -119,7 +119,7 @@ struct mapped_device {
 	struct dm_stats stats;
 
 	/* the number of internal suspends */
-	unsigned int internal_suspend_count;
+	unsigned internal_suspend_count;
 
 	int swap_bios;
 	struct semaphore swap_bios_semaphore;
@@ -326,9 +326,9 @@ static inline struct completion *dm_get_completion_from_kobject(struct kobject *
 	return &container_of(kobj, struct dm_kobject_holder, kobj)->completion;
 }
 
-unsigned int __dm_get_module_param(unsigned int *module_param, unsigned int def, unsigned int max);
+unsigned __dm_get_module_param(unsigned *module_param, unsigned def, unsigned max);
 
-static inline bool dm_message_test_buffer_overflow(char *result, unsigned int maxlen)
+static inline bool dm_message_test_buffer_overflow(char *result, unsigned maxlen)
 {
 	return !maxlen || strlen(result) + 1 >= maxlen;
 }

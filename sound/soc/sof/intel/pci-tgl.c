@@ -34,9 +34,6 @@ static const struct sof_dev_desc tgl_desc = {
 		[SOF_IPC] = "intel/sof",
 		[SOF_INTEL_IPC4] = "intel/avs/tgl",
 	},
-	.default_lib_path = {
-		[SOF_INTEL_IPC4] = "intel/avs-lib/tgl",
-	},
 	.default_tplg_path = {
 		[SOF_IPC] = "intel/sof-tplg",
 		[SOF_INTEL_IPC4] = "intel/avs-tplg",
@@ -48,7 +45,6 @@ static const struct sof_dev_desc tgl_desc = {
 	.nocodec_tplg_filename = "sof-tgl-nocodec.tplg",
 	.ops = &sof_tgl_ops,
 	.ops_init = sof_tgl_ops_init,
-	.ops_free = hda_ops_free,
 };
 
 static const struct sof_dev_desc tglh_desc = {
@@ -65,9 +61,6 @@ static const struct sof_dev_desc tglh_desc = {
 	.default_fw_path = {
 		[SOF_IPC] = "intel/sof",
 		[SOF_INTEL_IPC4] = "intel/avs/tgl-h",
-	},
-	.default_lib_path = {
-		[SOF_INTEL_IPC4] = "intel/avs-lib/tgl-h",
 	},
 	.default_tplg_path = {
 		[SOF_IPC] = "intel/sof-tplg",
@@ -97,9 +90,6 @@ static const struct sof_dev_desc ehl_desc = {
 		[SOF_IPC] = "intel/sof",
 		[SOF_INTEL_IPC4] = "intel/avs/ehl",
 	},
-	.default_lib_path = {
-		[SOF_INTEL_IPC4] = "intel/avs-lib/ehl",
-	},
 	.default_tplg_path = {
 		[SOF_IPC] = "intel/sof-tplg",
 		[SOF_INTEL_IPC4] = "intel/avs-tplg",
@@ -111,7 +101,6 @@ static const struct sof_dev_desc ehl_desc = {
 	.nocodec_tplg_filename = "sof-ehl-nocodec.tplg",
 	.ops = &sof_tgl_ops,
 	.ops_init = sof_tgl_ops_init,
-	.ops_free = hda_ops_free,
 };
 
 static const struct sof_dev_desc adls_desc = {
@@ -129,9 +118,6 @@ static const struct sof_dev_desc adls_desc = {
 		[SOF_IPC] = "intel/sof",
 		[SOF_INTEL_IPC4] = "intel/avs/adl-s",
 	},
-	.default_lib_path = {
-		[SOF_INTEL_IPC4] = "intel/avs-lib/adl-s",
-	},
 	.default_tplg_path = {
 		[SOF_IPC] = "intel/sof-tplg",
 		[SOF_INTEL_IPC4] = "intel/avs-tplg",
@@ -143,7 +129,6 @@ static const struct sof_dev_desc adls_desc = {
 	.nocodec_tplg_filename = "sof-adl-nocodec.tplg",
 	.ops = &sof_tgl_ops,
 	.ops_init = sof_tgl_ops_init,
-	.ops_free = hda_ops_free,
 };
 
 static const struct sof_dev_desc adl_desc = {
@@ -161,9 +146,6 @@ static const struct sof_dev_desc adl_desc = {
 		[SOF_IPC] = "intel/sof",
 		[SOF_INTEL_IPC4] = "intel/avs/adl",
 	},
-	.default_lib_path = {
-		[SOF_INTEL_IPC4] = "intel/avs-lib/adl",
-	},
 	.default_tplg_path = {
 		[SOF_IPC] = "intel/sof-tplg",
 		[SOF_INTEL_IPC4] = "intel/avs-tplg",
@@ -175,7 +157,6 @@ static const struct sof_dev_desc adl_desc = {
 	.nocodec_tplg_filename = "sof-adl-nocodec.tplg",
 	.ops = &sof_tgl_ops,
 	.ops_init = sof_tgl_ops_init,
-	.ops_free = hda_ops_free,
 };
 
 static const struct sof_dev_desc adl_n_desc = {
@@ -193,9 +174,6 @@ static const struct sof_dev_desc adl_n_desc = {
 		[SOF_IPC] = "intel/sof",
 		[SOF_INTEL_IPC4] = "intel/avs/adl-n",
 	},
-	.default_lib_path = {
-		[SOF_INTEL_IPC4] = "intel/avs-lib/adl-n",
-	},
 	.default_tplg_path = {
 		[SOF_IPC] = "intel/sof-tplg",
 		[SOF_INTEL_IPC4] = "intel/avs-tplg",
@@ -207,7 +185,6 @@ static const struct sof_dev_desc adl_n_desc = {
 	.nocodec_tplg_filename = "sof-adl-nocodec.tplg",
 	.ops = &sof_tgl_ops,
 	.ops_init = sof_tgl_ops_init,
-	.ops_free = hda_ops_free,
 };
 
 static const struct sof_dev_desc rpls_desc = {
@@ -225,9 +202,6 @@ static const struct sof_dev_desc rpls_desc = {
 		[SOF_IPC] = "intel/sof",
 		[SOF_INTEL_IPC4] = "intel/avs/rpl-s",
 	},
-	.default_lib_path = {
-		[SOF_INTEL_IPC4] = "intel/avs-lib/rpl-s",
-	},
 	.default_tplg_path = {
 		[SOF_IPC] = "intel/sof-tplg",
 		[SOF_INTEL_IPC4] = "intel/avs-tplg",
@@ -239,7 +213,6 @@ static const struct sof_dev_desc rpls_desc = {
 	.nocodec_tplg_filename = "sof-rpl-nocodec.tplg",
 	.ops = &sof_tgl_ops,
 	.ops_init = sof_tgl_ops_init,
-	.ops_free = hda_ops_free,
 };
 
 static const struct sof_dev_desc rpl_desc = {
@@ -257,9 +230,6 @@ static const struct sof_dev_desc rpl_desc = {
 		[SOF_IPC] = "intel/sof",
 		[SOF_INTEL_IPC4] = "intel/avs/rpl",
 	},
-	.default_lib_path = {
-		[SOF_INTEL_IPC4] = "intel/avs-lib/rpl",
-	},
 	.default_tplg_path = {
 		[SOF_IPC] = "intel/sof-tplg",
 		[SOF_INTEL_IPC4] = "intel/avs-tplg",
@@ -271,7 +241,6 @@ static const struct sof_dev_desc rpl_desc = {
 	.nocodec_tplg_filename = "sof-rpl-nocodec.tplg",
 	.ops = &sof_tgl_ops,
 	.ops_init = sof_tgl_ops_init,
-	.ops_free = hda_ops_free,
 };
 
 /* PCI IDs */

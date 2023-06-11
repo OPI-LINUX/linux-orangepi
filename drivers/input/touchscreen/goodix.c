@@ -124,18 +124,10 @@ static const unsigned long goodix_irq_flags[] = {
 static const struct dmi_system_id nine_bytes_report[] = {
 #if defined(CONFIG_DMI) && defined(CONFIG_X86)
 	{
-		/* Lenovo Yoga Book X90F / X90L */
+		.ident = "Lenovo YogaBook",
+		/* YB1-X91L/F and YB1-X90L/F */
 		.matches = {
-			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Intel Corporation"),
-			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "CHERRYVIEW D1 PLATFORM"),
-			DMI_EXACT_MATCH(DMI_PRODUCT_VERSION, "YETI-11"),
-		}
-	},
-	{
-		/* Lenovo Yoga Book X91F / X91L */
-		.matches = {
-			/* Non exact match to match F + L versions */
-			DMI_MATCH(DMI_PRODUCT_NAME, "Lenovo YB1-X91"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Lenovo YB1-X9")
 		}
 	},
 #endif
@@ -1290,7 +1282,8 @@ static void goodix_disable_regulators(void *arg)
 	regulator_disable(ts->avdd28);
 }
 
-static int goodix_ts_probe(struct i2c_client *client)
+static int goodix_ts_probe(struct i2c_client *client,
+			   const struct i2c_device_id *id)
 {
 	struct goodix_ts_data *ts;
 	const char *cfg_name;
@@ -1544,7 +1537,7 @@ MODULE_DEVICE_TABLE(of, goodix_of_match);
 #endif
 
 static struct i2c_driver goodix_ts_driver = {
-	.probe_new = goodix_ts_probe,
+	.probe = goodix_ts_probe,
 	.remove = goodix_ts_remove,
 	.id_table = goodix_ts_id,
 	.driver = {

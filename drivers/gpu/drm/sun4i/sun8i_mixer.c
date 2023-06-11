@@ -303,44 +303,9 @@ static struct drm_plane **sun8i_layers_init(struct drm_device *drm,
 	return planes;
 }
 
-static void sun8i_mixer_mode_set(struct sunxi_engine *engine,
-				 const struct drm_display_mode *mode)
-{
-	struct sun8i_mixer *mixer = engine_to_sun8i_mixer(engine);
-	u32 bld_base, size, val;
-	struct regmap *bld_regs;
-	bool interlaced;
-
-	bld_base = sun8i_blender_base(mixer);
-	bld_regs = sun8i_blender_regmap(mixer);
-	interlaced = !!(mode->flags & DRM_MODE_FLAG_INTERLACE);
-	size = SUN8I_MIXER_SIZE(mode->hdisplay, mode->vdisplay);
-
-	DRM_DEBUG_DRIVER("Updating global size W: %u H: %u\n",
-			 mode->hdisplay, mode->vdisplay);
-
-	if (mixer->cfg->de_type == sun8i_mixer_de33)
-		regmap_write(mixer->top_regs, SUN50I_MIXER_GLOBAL_SIZE, size);
-	else
-		regmap_write(mixer->engine.regs, SUN8I_MIXER_GLOBAL_SIZE, size);
-	regmap_write(bld_regs, SUN8I_MIXER_BLEND_OUTSIZE(bld_base), size);
-
-	if (interlaced)
-		val = SUN8I_MIXER_BLEND_OUTCTL_INTERLACED;
-	else
-		val = 0;
-
-	regmap_update_bits(bld_regs, SUN8I_MIXER_BLEND_OUTCTL(bld_base),
-			   SUN8I_MIXER_BLEND_OUTCTL_INTERLACED, val);
-
-	DRM_DEBUG_DRIVER("Switching display mixer interlaced mode %s\n",
-			 interlaced ? "on" : "off");
-}
-
 static const struct sunxi_engine_ops sun8i_engine_ops = {
 	.commit		= sun8i_mixer_commit,
 	.layers_init	= sun8i_layers_init,
-	.mode_set	= sun8i_mixer_mode_set,
 };
 
 static bool sun8i_mixer_volatile_reg(struct device *dev, unsigned int reg)
@@ -729,7 +694,6 @@ static const struct sun8i_mixer_cfg sun8i_v3s_mixer_cfg = {
 
 static const struct sun8i_mixer_cfg sun20i_d1_mixer0_cfg = {
 	.ccsc		= CCSC_D1_MIXER0_LAYOUT,
-	.de_type	= sun8i_mixer_de2,
 	.mod_rate	= 297000000,
 	.scaler_mask	= 0x3,
 	.scanline_yuv	= 2048,
@@ -739,7 +703,6 @@ static const struct sun8i_mixer_cfg sun20i_d1_mixer0_cfg = {
 
 static const struct sun8i_mixer_cfg sun20i_d1_mixer1_cfg = {
 	.ccsc		= CCSC_MIXER1_LAYOUT,
-	.de_type	= sun8i_mixer_de2,
 	.mod_rate	= 297000000,
 	.scaler_mask	= 0x1,
 	.scanline_yuv	= 1024,

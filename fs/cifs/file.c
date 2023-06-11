@@ -260,15 +260,14 @@ static int cifs_nt_open(const char *full_path, struct inode *inode, struct cifs_
 	if (f_flags & O_DIRECT)
 		create_options |= CREATE_NO_BUFFER;
 
-	oparms = (struct cifs_open_parms) {
-		.tcon = tcon,
-		.cifs_sb = cifs_sb,
-		.desired_access = desired_access,
-		.create_options = cifs_create_options(cifs_sb, create_options),
-		.disposition = disposition,
-		.path = full_path,
-		.fid = fid,
-	};
+	oparms.tcon = tcon;
+	oparms.cifs_sb = cifs_sb;
+	oparms.desired_access = desired_access;
+	oparms.create_options = cifs_create_options(cifs_sb, create_options);
+	oparms.disposition = disposition;
+	oparms.path = full_path;
+	oparms.fid = fid;
+	oparms.reconnect = false;
 
 	rc = server->ops->open(xid, &oparms, oplock, buf);
 	if (rc)
@@ -849,16 +848,14 @@ cifs_reopen_file(struct cifsFileInfo *cfile, bool can_flush)
 	if (server->ops->get_lease_key)
 		server->ops->get_lease_key(inode, &cfile->fid);
 
-	oparms = (struct cifs_open_parms) {
-		.tcon = tcon,
-		.cifs_sb = cifs_sb,
-		.desired_access = desired_access,
-		.create_options = cifs_create_options(cifs_sb, create_options),
-		.disposition = disposition,
-		.path = full_path,
-		.fid = &cfile->fid,
-		.reconnect = true,
-	};
+	oparms.tcon = tcon;
+	oparms.cifs_sb = cifs_sb;
+	oparms.desired_access = desired_access;
+	oparms.create_options = cifs_create_options(cifs_sb, create_options);
+	oparms.disposition = disposition;
+	oparms.path = full_path;
+	oparms.fid = &cfile->fid;
+	oparms.reconnect = true;
 
 	/*
 	 * Can not refresh inode by passing in file_info buf to be returned by
@@ -1416,7 +1413,7 @@ cifs_push_posix_locks(struct cifsFileInfo *cfile)
 	struct inode *inode = d_inode(cfile->dentry);
 	struct cifs_tcon *tcon = tlink_tcon(cfile->tlink);
 	struct file_lock *flock;
-	struct file_lock_context *flctx = locks_inode_context(inode);
+	struct file_lock_context *flctx = inode->i_flctx;
 	unsigned int count = 0, i;
 	int rc = 0, xid, type;
 	struct list_head locks_to_send, *el;
@@ -2649,21 +2646,6 @@ wdata_send_pages(struct cifs_writedata *wdata, unsigned int nr_pages,
 	return rc;
 }
 
-static int
-cifs_writepage_locked(struct page *page, struct writeback_control *wbc);
-
-static int cifs_write_one_page(struct page *page, struct writeback_control *wbc,
-		void *data)
-{
-	struct address_space *mapping = data;
-	int ret;
-
-	ret = cifs_writepage_locked(page, wbc);
-	unlock_page(page);
-	mapping_set_error(mapping, ret);
-	return ret;
-}
-
 static int cifs_writepages(struct address_space *mapping,
 			   struct writeback_control *wbc)
 {
@@ -2680,11 +2662,10 @@ static int cifs_writepages(struct address_space *mapping,
 
 	/*
 	 * If wsize is smaller than the page cache size, default to writing
-	 * one page at a time.
+	 * one page at a time via cifs_writepage
 	 */
 	if (cifs_sb->ctx->wsize < PAGE_SIZE)
-		return write_cache_pages(mapping, wbc, cifs_write_one_page,
-				mapping);
+		return generic_writepages(mapping, wbc);
 
 	xid = get_xid();
 	if (wbc->range_cyclic) {
@@ -2868,6 +2849,13 @@ retry_write:
 	end_page_writeback(page);
 	put_page(page);
 	free_xid(xid);
+	return rc;
+}
+
+static int cifs_writepage(struct page *page, struct writeback_control *wbc)
+{
+	int rc = cifs_writepage_locked(page, wbc);
+	unlock_page(page);
 	return rc;
 }
 
@@ -5243,6 +5231,7 @@ static bool cifs_dirty_folio(struct address_space *mapping, struct folio *folio)
 const struct address_space_operations cifs_addr_ops = {
 	.read_folio = cifs_read_folio,
 	.readahead = cifs_readahead,
+	.writepage = cifs_writepage,
 	.writepages = cifs_writepages,
 	.write_begin = cifs_write_begin,
 	.write_end = cifs_write_end,
@@ -5251,10 +5240,10 @@ const struct address_space_operations cifs_addr_ops = {
 	.direct_IO = cifs_direct_io,
 	.invalidate_folio = cifs_invalidate_folio,
 	.launder_folio = cifs_launder_folio,
-	.migrate_folio = filemap_migrate_folio,
 	/*
-	 * TODO: investigate and if useful we could add an is_dirty_writeback
-	 * helper if needed
+	 * TODO: investigate and if useful we could add an cifs_migratePage
+	 * helper (under an CONFIG_MIGRATION) in the future, and also
+	 * investigate and add an is_dirty_writeback helper if needed
 	 */
 	.swap_activate = cifs_swap_activate,
 	.swap_deactivate = cifs_swap_deactivate,
@@ -5267,6 +5256,7 @@ const struct address_space_operations cifs_addr_ops = {
  */
 const struct address_space_operations cifs_addr_ops_smallbuf = {
 	.read_folio = cifs_read_folio,
+	.writepage = cifs_writepage,
 	.writepages = cifs_writepages,
 	.write_begin = cifs_write_begin,
 	.write_end = cifs_write_end,
@@ -5274,5 +5264,4 @@ const struct address_space_operations cifs_addr_ops_smallbuf = {
 	.release_folio = cifs_release_folio,
 	.invalidate_folio = cifs_invalidate_folio,
 	.launder_folio = cifs_launder_folio,
-	.migrate_folio = filemap_migrate_folio,
 };

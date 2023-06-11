@@ -239,42 +239,41 @@ static void esd_usb_rx_event(struct esd_usb_net_priv *priv,
 			   msg->msg.rx.dlc, state, ecc, rxerr, txerr);
 
 		skb = alloc_can_err_skb(priv->netdev, &cf);
+		if (skb == NULL) {
+			stats->rx_dropped++;
+			return;
+		}
 
 		if (state != priv->old_state) {
-			enum can_state tx_state, rx_state;
-			enum can_state new_state = CAN_STATE_ERROR_ACTIVE;
-
 			priv->old_state = state;
 
 			switch (state & ESD_BUSSTATE_MASK) {
 			case ESD_BUSSTATE_BUSOFF:
-				new_state = CAN_STATE_BUS_OFF;
+				priv->can.state = CAN_STATE_BUS_OFF;
+				cf->can_id |= CAN_ERR_BUSOFF;
+				priv->can.can_stats.bus_off++;
 				can_bus_off(priv->netdev);
 				break;
 			case ESD_BUSSTATE_WARN:
-				new_state = CAN_STATE_ERROR_WARNING;
+				priv->can.state = CAN_STATE_ERROR_WARNING;
+				priv->can.can_stats.error_warning++;
 				break;
 			case ESD_BUSSTATE_ERRPASSIVE:
-				new_state = CAN_STATE_ERROR_PASSIVE;
+				priv->can.state = CAN_STATE_ERROR_PASSIVE;
+				priv->can.can_stats.error_passive++;
 				break;
 			default:
-				new_state = CAN_STATE_ERROR_ACTIVE;
+				priv->can.state = CAN_STATE_ERROR_ACTIVE;
 				txerr = 0;
 				rxerr = 0;
 				break;
 			}
-
-			if (new_state != priv->can.state) {
-				tx_state = (txerr >= rxerr) ? new_state : 0;
-				rx_state = (txerr <= rxerr) ? new_state : 0;
-				can_change_state(priv->netdev, cf,
-						 tx_state, rx_state);
-			}
-		} else if (skb) {
+		} else {
 			priv->can.can_stats.bus_error++;
 			stats->rx_errors++;
 
-			cf->can_id |= CAN_ERR_PROT | CAN_ERR_BUSERROR;
+			cf->can_id |= CAN_ERR_PROT | CAN_ERR_BUSERROR |
+				      CAN_ERR_CNT;
 
 			switch (ecc & SJA1000_ECC_MASK) {
 			case SJA1000_ECC_BIT:
@@ -287,6 +286,7 @@ static void esd_usb_rx_event(struct esd_usb_net_priv *priv,
 				cf->data[2] |= CAN_ERR_PROT_STUFF;
 				break;
 			default:
+				cf->data[3] = ecc & SJA1000_ECC_SEG;
 				break;
 			}
 
@@ -294,22 +294,20 @@ static void esd_usb_rx_event(struct esd_usb_net_priv *priv,
 			if (!(ecc & SJA1000_ECC_DIR))
 				cf->data[2] |= CAN_ERR_PROT_TX;
 
-			/* Bit stream position in CAN frame as the error was detected */
-			cf->data[3] = ecc & SJA1000_ECC_SEG;
+			if (priv->can.state == CAN_STATE_ERROR_WARNING ||
+			    priv->can.state == CAN_STATE_ERROR_PASSIVE) {
+				cf->data[1] = (txerr > rxerr) ?
+					CAN_ERR_CRTL_TX_PASSIVE :
+					CAN_ERR_CRTL_RX_PASSIVE;
+			}
+			cf->data[6] = txerr;
+			cf->data[7] = rxerr;
 		}
 
 		priv->bec.txerr = txerr;
 		priv->bec.rxerr = rxerr;
 
-		if (skb) {
-			cf->can_id |= CAN_ERR_CNT;
-			cf->data[6] = txerr;
-			cf->data[7] = rxerr;
-
-			netif_rx(skb);
-		} else {
-			stats->rx_dropped++;
-		}
+		netif_rx(skb);
 	}
 }
 

@@ -162,12 +162,6 @@ static int meson_pwm_calc(struct meson_pwm *meson, struct pwm_device *pwm,
 	duty = state->duty_cycle;
 	period = state->period;
 
-	/*
-	 * Note this is wrong. The result is an output wave that isn't really
-	 * inverted and so is wrongly identified by .get_state as normal.
-	 * Fixing this needs some care however as some machines might rely on
-	 * this.
-	 */
 	if (state->polarity == PWM_POLARITY_INVERSED)
 		duty = period - duty;
 
@@ -324,8 +318,8 @@ static unsigned int meson_pwm_cnt_to_ns(struct pwm_chip *chip,
 	return cnt * fin_ns * (channel->pre_div + 1);
 }
 
-static int meson_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
-			       struct pwm_state *state)
+static void meson_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
+				struct pwm_state *state)
 {
 	struct meson_pwm *meson = to_meson_pwm(chip);
 	struct meson_pwm_channel_data *channel_data;
@@ -333,7 +327,7 @@ static int meson_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 	u32 value, tmp;
 
 	if (!state)
-		return 0;
+		return;
 
 	channel = &meson->channels[pwm->hwpwm];
 	channel_data = &meson_pwm_per_channel_data[pwm->hwpwm];
@@ -363,10 +357,6 @@ static int meson_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 		state->period = 0;
 		state->duty_cycle = 0;
 	}
-
-	state->polarity = PWM_POLARITY_NORMAL;
-
-	return 0;
 }
 
 static const struct pwm_ops meson_pwm_ops = {

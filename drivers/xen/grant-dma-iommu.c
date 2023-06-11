@@ -16,15 +16,8 @@ struct grant_dma_iommu_device {
 	struct iommu_device iommu;
 };
 
-static struct iommu_device *grant_dma_iommu_probe_device(struct device *dev)
-{
-	return ERR_PTR(-ENODEV);
-}
-
-/* Nothing is really needed here except a dummy probe_device callback */
-static const struct iommu_ops grant_dma_iommu_ops = {
-	.probe_device = grant_dma_iommu_probe_device,
-};
+/* Nothing is really needed here */
+static const struct iommu_ops grant_dma_iommu_ops;
 
 static const struct of_device_id grant_dma_iommu_of_match[] = {
 	{ .compatible = "xen,grant-dma" },

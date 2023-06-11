@@ -34,11 +34,6 @@ __be16 dport = 0;
 int test_exist_lookup = -ENOENT;
 u32 test_exist_lookup_mark = 0;
 
-enum nf_nat_manip_type___local {
-	NF_NAT_MANIP_SRC___local,
-	NF_NAT_MANIP_DST___local
-};
-
 struct nf_conn;
 
 struct bpf_ct_opts___local {
@@ -63,7 +58,7 @@ int bpf_ct_change_timeout(struct nf_conn *, u32) __ksym;
 int bpf_ct_set_status(struct nf_conn *, u32) __ksym;
 int bpf_ct_change_status(struct nf_conn *, u32) __ksym;
 int bpf_ct_set_nat_info(struct nf_conn *, union nf_inet_addr *,
-			int port, enum nf_nat_manip_type___local) __ksym;
+			int port, enum nf_nat_manip_type) __ksym;
 
 static __always_inline void
 nf_ct_test(struct nf_conn *(*lookup_fn)(void *, struct bpf_sock_tuple *, u32,
@@ -162,10 +157,10 @@ nf_ct_test(struct nf_conn *(*lookup_fn)(void *, struct bpf_sock_tuple *, u32,
 
 		/* snat */
 		saddr.ip = bpf_get_prandom_u32();
-		bpf_ct_set_nat_info(ct, &saddr, sport, NF_NAT_MANIP_SRC___local);
+		bpf_ct_set_nat_info(ct, &saddr, sport, NF_NAT_MANIP_SRC);
 		/* dnat */
 		daddr.ip = bpf_get_prandom_u32();
-		bpf_ct_set_nat_info(ct, &daddr, dport, NF_NAT_MANIP_DST___local);
+		bpf_ct_set_nat_info(ct, &daddr, dport, NF_NAT_MANIP_DST);
 
 		ct_ins = bpf_ct_insert_entry(ct);
 		if (ct_ins) {

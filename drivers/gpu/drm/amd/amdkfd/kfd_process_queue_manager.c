@@ -218,8 +218,8 @@ static int init_user_queue(struct process_queue_manager *pqm,
 	return 0;
 
 cleanup:
-	uninit_queue(*q);
-	*q = NULL;
+	if (dev->shared_resources.enable_mes)
+		uninit_queue(*q);
 	return retval;
 }
 

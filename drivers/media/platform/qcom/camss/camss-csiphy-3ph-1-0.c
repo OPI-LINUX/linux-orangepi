@@ -429,8 +429,7 @@ static void csiphy_gen2_config_lanes(struct csiphy_device *csiphy,
 		array_size = ARRAY_SIZE(lane_regs_sm8250[0]);
 		break;
 	default:
-		WARN(1, "unknown cspi version\n");
-		return;
+		unreachable();
 	}
 
 	for (l = 0; l < 5; l++) {

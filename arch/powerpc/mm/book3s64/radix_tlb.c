@@ -1179,12 +1179,15 @@ static inline void __radix__flush_tlb_range(struct mm_struct *mm,
 			}
 		}
 	} else {
-		bool hflush;
+		bool hflush = false;
 		unsigned long hstart, hend;
 
-		hstart = (start + PMD_SIZE - 1) & PMD_MASK;
-		hend = end & PMD_MASK;
-		hflush = IS_ENABLED(CONFIG_TRANSPARENT_HUGEPAGE) && hstart < hend;
+		if (IS_ENABLED(CONFIG_TRANSPARENT_HUGEPAGE)) {
+			hstart = (start + PMD_SIZE - 1) & PMD_MASK;
+			hend = end & PMD_MASK;
+			if (hstart < hend)
+				hflush = true;
+		}
 
 		if (type == FLUSH_TYPE_LOCAL) {
 			asm volatile("ptesync": : :"memory");
